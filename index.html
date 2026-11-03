@@ -55,21 +55,25 @@
             initFirebaseRealtime();
             trackSiteVisit();
             onAuthStateChanged(auth, (user) => {
+                // Customer profile cache is used only to restore the visible profile UI.
+                // Firebase Auth remains the authority for Google/email access to protected data.
+                let savedCustomer = null;
+                try { savedCustomer = JSON.parse(localStorage.getItem('baseStoreCustomerProfile') || 'null'); } catch (_) {}
                 if (user && user.uid === ADMIN_UID) {
                     if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
-                    // Keep a separately authenticated Discord customer profile visible
-                    // even while the Firebase admin session remains active.
-                    try { currentUser = JSON.parse(localStorage.getItem('baseStoreDiscordUser') || 'null'); } catch (_) { currentUser = null; }
+                    currentUser = savedCustomer || null;
                     updateAuthUI();
                 } else if (user) {
                     const providers = (user.providerData || []).map(item => item.providerId);
                     const provider = providers.includes('google.com') ? 'google' : 'email';
                     currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاونتەکەم', avatar: user.photoURL || '', provider };
+                    try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     updateAuthUI();
                     loadUserWishlistFromCloud();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 } else {
-                    try { currentUser = JSON.parse(localStorage.getItem('baseStoreDiscordUser') || 'null'); } catch (_) { currentUser = null; }
+                    // Discord uses its own OAuth PKCE session; restore its profile after refresh.
+                    currentUser = savedCustomer && savedCustomer.provider === 'discord' ? savedCustomer : null;
                     updateAuthUI();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 }
@@ -872,7 +876,7 @@
                     if (!profileResponse.ok) throw new Error("Could not read Discord profile.");
                     const profile = await profileResponse.json();
                     currentUser = { uid: 'discord:' + profile.id, name: profile.global_name || profile.username, email: profile.email || '', avatar: profile.avatar ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png` : '', provider: 'discord' };
-                    localStorage.setItem('baseStoreDiscordUser', JSON.stringify(currentUser));
+                    localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser));
                     updateAuthUI();
                     closeModal('authModal');
                     showTopLeftToast('بە سەرکەوتوویی چوویتەژوورەوە بە Discord');
@@ -917,6 +921,7 @@
             try {
                 const result = await window.googleSignIn();
                 currentUser = { uid: result.user.uid, email: result.user.email, name: result.user.displayName || result.user.email, avatar: result.user.photoURL || '', provider: 'google' };
+                try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                 updateAuthUI(); closeModal('authModal'); loadUserWishlistFromCloud();
                 showTopLeftToast('بە سەرکەوتوویی چوویتەژوورەوە بە Google');
             } catch (error) { console.error(error); alert('چوونەژوورەوەی Google سەرکەوتوو نەبوو. دڵنیابە Google لە Firebase Authentication چالاکە.'); }
@@ -963,8 +968,8 @@
 
         async function logoutUser() {
             try {
-                if (currentUser && currentUser.provider === 'discord') localStorage.removeItem('baseStoreDiscordUser');
-                else await window.signOut(window.auth);
+                localStorage.removeItem('baseStoreCustomerProfile');
+                if (!currentUser || currentUser.provider !== 'discord') await window.signOut(window.auth);
                 currentUser = null;
                 wishlist = [];
                 updateAuthUI();
