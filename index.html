@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyACK6eIhr21aKJvUVa2fz75f2fpgq9i7KQ",
@@ -36,6 +36,7 @@
         window.signInWithEmailAndPassword = signInWithEmailAndPassword;
         window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.signOut = signOut;
+        window.googleSignIn = async () => signInWithPopup(auth, new GoogleAuthProvider());
         window.collection = collection;
         window.addDoc = addDoc;
         window.getDocs = getDocs;
@@ -60,7 +61,7 @@
                     loadUserWishlistFromCloud();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 } else {
-                    currentUser = null;
+                    try { currentUser = JSON.parse(localStorage.getItem('baseStoreDiscordUser') || 'null'); } catch (_) { currentUser = null; }
                     updateAuthUI();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 }
@@ -520,6 +521,7 @@
             </div>
             <button onclick="customerAuthAction('login')" class="admin-submit-btn">چوونەژوورەوە</button>
             <button onclick="customerAuthAction('register')" style="width:100%; margin-top:9px; background:#222; color:#fff; border:1px solid var(--border-color); padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;">دروستکردنی هەژماری نوێ</button>
+            <button onclick="loginWithGoogle()" style="width:100%; margin-top:9px; background:#fff; color:#222; border:0; padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;"><i class="fa-brands fa-google"></i> چوونەژوورەوە بە Gmail / Google</button>
             <button onclick="loginWithDiscord()" style="width:100%; margin-top:9px; background:#5865F2; color:#fff; border:0; padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;"><i class="fa-brands fa-discord"></i> چوونەژوورەوە بە Discord</button>
             <p style="font-size:0.72rem;color:#999;margin-top:10px;">بۆ دروستکردنی هەژمار، پێویستە Email/Password لە Firebase Authentication چالاک بێت.</p>
             <div id="logoutSection" style="margin-top:15px; display:none;">
@@ -815,7 +817,7 @@
             const btnText = document.getElementById('authBtnText');
             const logoutSec = document.getElementById('logoutSection');
             if(currentUser) {
-                if (btnText) btnText.textContent = currentUser.name || currentUser.email || 'ئەکاونتەکەم';
+                if (btnText) btnText.textContent = (currentUser.name || currentUser.email || 'ئەکاونتەکەم') + (currentUser.provider === 'discord' ? ' · Discord' : currentUser.provider === 'google' ? ' · Google' : '');
                 if(logoutSec) logoutSec.style.display = 'block';
             } else {
                 if (btnText) btnText.textContent = 'چوونەژوورەوە';
@@ -861,10 +863,15 @@
                     });
                     if (!profileResponse.ok) throw new Error("Could not read Discord profile.");
                     const profile = await profileResponse.json();
+                    currentUser = { uid: 'discord:' + profile.id, name: profile.global_name || profile.username, email: profile.email || '', avatar: profile.avatar ? `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png` : '', provider: 'discord' };
+                    localStorage.setItem('baseStoreDiscordUser', JSON.stringify(currentUser));
+                    updateAuthUI();
+                    closeModal('authModal');
+                    showTopLeftToast('بە سەرکەوتوویی چوویتەژوورەوە بە Discord');
                     sessionStorage.removeItem("discord_oauth_state");
                     sessionStorage.removeItem("discord_code_verifier");
                     history.replaceState({}, document.title, DISCORD_REDIRECT_URI);
-                    alert(`بە Discord چوویتەژوورەوە: ${profile.global_name || profile.username}\nئەمە ناسینەوەی Discord ـە؛ هێشتا Firebase Auth نییە.`);
+                    
                     return;
                 }
                 const random = new Uint8Array(32);
@@ -897,6 +904,16 @@
         if (new URLSearchParams(window.location.search).has("code")) {
             window.addEventListener("DOMContentLoaded", () => loginWithDiscord());
         }
+
+        async function loginWithGoogle() {
+            try {
+                const result = await window.googleSignIn();
+                currentUser = { uid: result.user.uid, email: result.user.email, name: result.user.displayName || result.user.email, avatar: result.user.photoURL || '', provider: 'google' };
+                updateAuthUI(); closeModal('authModal'); loadUserWishlistFromCloud();
+                showTopLeftToast('بە سەرکەوتوویی چوویتەژوورەوە بە Google');
+            } catch (error) { console.error(error); alert('چوونەژوورەوەی Google سەرکەوتوو نەبوو. دڵنیابە Google لە Firebase Authentication چالاکە.'); }
+        }
+        window.loginWithGoogle = loginWithGoogle;
 
         async function customerAuthAction(mode) {
             const email = document.getElementById('customerEmail').value.trim().toLowerCase();
@@ -937,7 +954,8 @@
 
         async function logoutUser() {
             try {
-                await window.signOut(window.auth);
+                if (currentUser && currentUser.provider === 'discord') localStorage.removeItem('baseStoreDiscordUser');
+                else await window.signOut(window.auth);
                 currentUser = null;
                 wishlist = [];
                 updateAuthUI();
