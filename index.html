@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyACK6eIhr21aKJvUVa2fz75f2fpgq9i7KQ",
@@ -28,11 +28,13 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        const ADMIN_UID = "jXZGaRyQtHNzabsj7Z7PQ299mgk2";
 
         window.db = db;
         window.auth = auth;
+        window.ADMIN_UID = ADMIN_UID;
         window.signInWithEmailAndPassword = signInWithEmailAndPassword;
-        window.onAuthStateChanged = onAuthStateChanged;
+        window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.signOut = signOut;
         window.collection = collection;
         window.addDoc = addDoc;
@@ -47,7 +49,22 @@
 
         window.addEventListener('DOMContentLoaded', () => {
             initFirebaseRealtime();
-            window.onAuthStateChanged(window.auth, (user) => handleAdminAuthState(user));
+            trackSiteVisit();
+            onAuthStateChanged(auth, (user) => {
+                if (user && user.uid === ADMIN_UID) {
+                    if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
+                    currentUser = null;
+                } else if (user) {
+                    currentUser = { uid: user.uid, email: user.email, name: user.email };
+                    updateAuthUI();
+                    loadUserWishlistFromCloud();
+                    if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
+                } else {
+                    currentUser = null;
+                    updateAuthUI();
+                    if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
+                }
+            });
         });
     </script>
     
@@ -492,17 +509,18 @@
             <h3>بەستنەوەی ئەکاونت / چوونەژوورەوە</h3>
             <p style="font-size:0.8rem; color:#aaa; margin:10px 0 20px 0;">بۆ ئەوەی داتاکانت (دڵخوازەکانت) هەمیشە لەگەڵت بمێنن، بە ئەکاونتەکەت بچۆ ژوورەوە:</p>
             
-            <button onclick="loginWithDiscord()" style="width:100%; background:var(--discord-blurple); color:#fff; border:none; padding:0.8rem; border-radius:12px; font-weight:bold; cursor:pointer; margin-bottom:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
-                <i class="fa-brands fa-discord"></i> بەستنەوە بە دیسکۆرد (Discord)
-            </button>
-            
-            <div style="margin:15px 0; color:#666; font-size:0.8rem;">یان بە ئیمەیڵ و ژمارە</div>
-            
-            <div class="admin-form-group" style="text-align: right;">
-                <label>ئیمەیڵ یان ژمارەی مۆبایل:</label>
-                <input type="text" id="userEmailOrPhone" placeholder="example@gmail.com یان 0750...">
+            <div style="margin:15px 0; color:#aaa; font-size:0.85rem;">بە ئیمەیڵ و پاسوۆرد هەژمار دروست بکە یان بچۆ ژوورەوە</div>
+            <div class="admin-form-group" style="text-align:right;">
+                <label>ئیمەیڵ:</label>
+                <input type="email" id="customerEmail" placeholder="example@gmail.com" autocomplete="email">
             </div>
-            <button onclick="loginWithEmailPhone()" class="admin-submit-btn">چوونەژوورەوەی خێرا</button>
+            <div class="admin-form-group" style="text-align:right;">
+                <label>پاسوۆرد (لانیکەم ٦ پیت):</label>
+                <input type="password" id="customerPassword" placeholder="پاسوۆردەکەت بنووسە" autocomplete="current-password">
+            </div>
+            <button onclick="customerAuthAction('login')" class="admin-submit-btn">چوونەژوورەوە</button>
+            <button onclick="customerAuthAction('register')" style="width:100%; margin-top:9px; background:#222; color:#fff; border:1px solid var(--border-color); padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;">دروستکردنی هەژماری نوێ</button>
+            <p style="font-size:0.72rem;color:#999;margin-top:10px;">بۆ دروستکردنی هەژمار، پێویستە Email/Password لە Firebase Authentication چالاک بێت.</p>
             <div id="logoutSection" style="margin-top:15px; display:none;">
                 <button onclick="logoutUser()" style="background:#ef4444; color:#fff; border:none; padding:0.5rem 1rem; border-radius:8px; cursor:pointer; font-size:0.8rem;">دەرچوون لە ئەکاونت (Logout)</button>
             </div>
@@ -538,12 +556,12 @@
         <div class="modal-content">
             <h3>Super Admin Access</h3>
             <div class="admin-form-group" style="margin-top:1rem;">
-                <label>ئیمەیڵی ئەکاونتی Admin</label>
-                <input type="email" id="adminEmailInput" autocomplete="username" placeholder="admin@example.com">
+                <label for="adminEmailInput">ئیمەیڵی ئەدمین</label>
+                <input type="email" id="adminEmailInput" placeholder="ئیمەیڵ" autocomplete="username" required>
             </div>
             <div class="admin-form-group">
-                <label>وشەی نهێنی</label>
-                <input type="password" id="adminPasswordInput" autocomplete="current-password" placeholder="Password">
+                <label for="adminPasswordInput">پاسوۆرد</label>
+                <input type="password" id="adminPasswordInput" placeholder="Password" autocomplete="current-password" required>
             </div>
             <button onclick="loginAdmin()" class="admin-submit-btn">داخڵبوون</button>
         </div>
@@ -734,11 +752,6 @@
 
     <script>
         const myWhatsAppNumber = "9647507285645";
-        // Public identifier only. Real authorization is enforced by Firestore Security Rules.
-        const ADMIN_UID = "jXZGaRyQtHNzabsj7Z7PQ299mgk2";
-        let adminRealtimeUnsubscribers = [];
-        let adminRealtimeInitialized = false;
-        let publicRealtimeInitialized = false;
         let currentCurrency = 'IQD';
         let eurToIqdRate = 1620;
         let usdRate = 1500;
@@ -749,6 +762,7 @@
         let lastOrderCount = -1;
 
         let currentUser = null;
+        let adminUnsubscribers = [];
         let slides = [];
         let currentSlideIndex = 0;
         let slideInterval = null;
@@ -796,59 +810,68 @@
             }, 4000);
         }
 
-        function handleAdminAuthState(user) {
-            if (user && user.uid === ADMIN_UID) {
-                currentUser = user;
-                updateAuthUI();
-                initAdminRealtime();
-                return;
-            }
-
-            currentUser = null;
-            adminRealtimeUnsubscribers.forEach(unsubscribe => {
-                try { unsubscribe(); } catch (e) {}
-            });
-            adminRealtimeUnsubscribers = [];
-            adminRealtimeInitialized = false;
-            coupons = [];
-            orders = [];
-            updateAuthUI();
-
-            // Any authenticated account other than the configured owner is signed out.
-            if (user && window.auth) {
-                window.signOut(window.auth).catch(() => {});
-            }
-        }
-
         function updateAuthUI() {
             const btnText = document.getElementById('authBtnText');
             const logoutSec = document.getElementById('logoutSection');
-            if (!btnText) return;
-            if (currentUser && currentUser.uid === ADMIN_UID) {
-                btnText.textContent = 'بەڕێوەبەر';
-                if (logoutSec) logoutSec.style.display = 'block';
+            if(currentUser) {
+                if (btnText) btnText.textContent = currentUser.name || currentUser.email || 'ئەکاونتەکەم';
+                if(logoutSec) logoutSec.style.display = 'block';
             } else {
-                btnText.textContent = 'چوونەژوورەوە';
-                if (logoutSec) logoutSec.style.display = 'none';
+                if (btnText) btnText.textContent = 'چوونەژوورەوە';
+                if(logoutSec) logoutSec.style.display = 'none';
             }
         }
 
-        function loginWithDiscord() {
-            alert('چوونەژوورەوەی کڕیار لە قۆناغی چاکسازییە. تکایە دواتر هەژماری ڕاستەقینە بەکاربهێنە.');
-        }
-
-        function loginWithEmailPhone() {
-            alert('چوونەژوورەوە بە ئیمەیڵ/ژمارە بۆ کڕیاران لە قۆناغی چاکسازییە. ئەم خانەیە دەسەڵاتی Admin نادات.');
+        async function customerAuthAction(mode) {
+            const email = document.getElementById('customerEmail').value.trim().toLowerCase();
+            const password = document.getElementById('customerPassword').value;
+            if (!email || !password) {
+                alert('تکایە ئیمەیڵ و پاسوۆرد پڕبکەرەوە');
+                return;
+            }
+            if (password.length < 6) {
+                alert('پاسوۆرد دەبێت لانیکەم ٦ پیت بێت');
+                return;
+            }
+            try {
+                let credential;
+                if (mode === 'register') {
+                    credential = await window.createUserWithEmailAndPassword(window.auth, email, password);
+                } else {
+                    credential = await window.signInWithEmailAndPassword(window.auth, email, password);
+                }
+                currentUser = { uid: credential.user.uid, email: credential.user.email, name: credential.user.email };
+                updateAuthUI();
+                closeModal('authModal');
+                showTopLeftToast(mode === 'register' ? 'هەژمارەکەت بە سەرکەوتوویی دروست کرا' : 'بە سەرکەوتوویی چوویتە ژوورەوە');
+                loadUserWishlistFromCloud();
+                document.getElementById('customerPassword').value = '';
+            } catch (error) {
+                console.error('Customer authentication failed:', error);
+                const messages = {
+                    'auth/email-already-in-use': 'ئەم ئیمەیڵە پێشتر هەژماری هەیە. بچۆ ژوورەوە.',
+                    'auth/invalid-email': 'شێوازی ئیمەیڵەکە دروست نییە.',
+                    'auth/weak-password': 'پاسوۆردەکە لاوازە؛ لانیکەم ٦ پیت بنووسە.',
+                    'auth/invalid-credential': 'ئیمەیڵ یان پاسوۆرد هەڵەیە.',
+                    'auth/network-request-failed': 'کێشەی ئینتەرنێت هەیە؛ دووبارە هەوڵ بدەرەوە.'
+                };
+                alert(messages[error.code] || 'هەژمار دروست نەکرا/چوونەژوورەوە سەرکەوتوو نەبوو. Firebase Authentication پشکنە.');
+            }
         }
 
         async function logoutUser() {
             try {
-                if (window.auth) await window.signOut(window.auth);
+                await window.signOut(window.auth);
+                currentUser = null;
+                wishlist = [];
+                updateAuthUI();
+                renderProducts();
+                renderWishlist();
                 closeModal('authModal');
-                closeModal('adminPanelModal');
-                showTopLeftToast('دەرچوون بە سەرکەوتوویی ئەنجامدرا');
-            } catch (e) {
-                alert('هەڵە لە دەرچوون: ' + e.message);
+                showTopLeftToast('دەرچوون لە هەژمار سەرکەوتوو بوو');
+            } catch (error) {
+                console.error('Logout failed:', error);
+                alert('دەرچوون سەرکەوتوو نەبوو. دووبارە هەوڵ بدەرەوە.');
             }
         }
 
@@ -901,10 +924,8 @@
         }
 
         function initFirebaseRealtime() {
-            if (!window.db || publicRealtimeInitialized) return;
-            publicRealtimeInitialized = true;
+            if (!window.db) return;
 
-            // Public catalog data: Firestore rules allow read-only access.
             window.onSnapshot(window.collection(window.db, "products"), (snapshot) => {
                 products = [];
                 snapshot.forEach((docSnap) => {
@@ -912,7 +933,7 @@
                 });
                 renderProducts();
                 renderAdminProductList();
-            }, (error) => console.error('Products read failed:', error));
+            });
 
             window.onSnapshot(window.collection(window.db, "categories"), (snapshot) => {
                 categories = [...defaultCategories];
@@ -924,17 +945,11 @@
                 });
                 renderCategoriesUI();
                 renderAdminCategoriesList();
-            }, (error) => console.error('Categories read failed:', error));
-
-            window.onSnapshot(window.collection(window.db, "reviews"), (snapshot) => {
-                reviews = [];
-                snapshot.forEach(docSnap => reviews.push({ firestoreId: docSnap.id, ...docSnap.data() }));
-                renderAdminReviewsList();
-            }, (error) => console.error('Reviews read failed:', error));
+            });
 
             window.onSnapshot(window.collection(window.db, "slides"), (snapshot) => {
                 slides = [];
-                if (!snapshot.empty) {
+                if(!snapshot.empty) {
                     snapshot.forEach((docSnap) => {
                         slides.push({ firestoreId: docSnap.id, ...docSnap.data() });
                     });
@@ -945,47 +960,69 @@
                 }
                 renderSlides();
                 renderAdminSlidesList();
-            }, (error) => console.error('Slides read failed:', error));
+            });
         }
 
         function initAdminRealtime() {
-            if (!window.db || !currentUser || currentUser.uid !== ADMIN_UID || adminRealtimeInitialized) return;
-            adminRealtimeInitialized = true;
+            if (!window.db || !window.auth || !window.auth.currentUser ||
+                window.auth.currentUser.uid !== window.ADMIN_UID) return;
 
-            // These collections contain private/business data and load only for the verified admin.
-            adminRealtimeUnsubscribers.push(window.onSnapshot(window.collection(window.db, "coupons"), (snapshot) => {
-                coupons = [];
-                snapshot.forEach(docSnap => coupons.push({ firestoreId: docSnap.id, ...docSnap.data() }));
-                renderAdminCouponsList();
-            }, (error) => console.error('Admin coupons read failed:', error)));
+            adminUnsubscribers.forEach(unsubscribe => unsubscribe());
+            adminUnsubscribers = [];
 
-            adminRealtimeUnsubscribers.push(window.onSnapshot(window.collection(window.db, "orders"), (snapshot) => {
-                const newOrders = [];
-                snapshot.forEach(docSnap => newOrders.push({ firestoreId: docSnap.id, ...docSnap.data() }));
-                if (lastOrderCount !== -1 && newOrders.length > lastOrderCount) {
-                    playAlertSound();
-                    showTopLeftToast("🔥 داواکاری نوێ تۆمار کرا!");
-                }
-                lastOrderCount = newOrders.length;
-                orders = newOrders;
-                renderAdminOrdersList();
-                updateStatsUI();
-            }, (error) => console.error('Admin orders read failed:', error)));
+            adminUnsubscribers.push(
+                window.onSnapshot(window.collection(window.db, "coupons"), (snapshot) => {
+                    coupons = [];
+                    snapshot.forEach(docSnap => coupons.push({ firestoreId: docSnap.id, ...docSnap.data() }));
+                    renderAdminCouponsList();
+                }, (error) => console.error("Admin coupons listener:", error))
+            );
 
-            adminRealtimeUnsubscribers.push(window.onSnapshot(window.doc(window.db, "stats", "globalViews"), (docSnap) => {
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    const el = document.getElementById('statTotalViews');
-                    if (el) el.textContent = data.count || 0;
-                }
-            }, (error) => console.error('Admin stats read failed:', error)));
+            adminUnsubscribers.push(
+                window.onSnapshot(window.collection(window.db, "orders"), (snapshot) => {
+                    const newOrders = [];
+                    snapshot.forEach(docSnap => newOrders.push({ firestoreId: docSnap.id, ...docSnap.data() }));
+                    if (lastOrderCount !== -1 && newOrders.length > lastOrderCount) {
+                        playAlertSound();
+                        showTopLeftToast("🔥 داواکاری نوێ تۆمار کرا!");
+                    }
+                    lastOrderCount = newOrders.length;
+                    orders = newOrders;
+                    renderAdminOrdersList();
+                    updateStatsUI();
+                }, (error) => console.error("Admin orders listener:", error))
+            );
+
+            adminUnsubscribers.push(
+                window.onSnapshot(window.collection(window.db, "reviews"), (snapshot) => {
+                    reviews = [];
+                    snapshot.forEach(docSnap => reviews.push({ firestoreId: docSnap.id, ...docSnap.data() }));
+                    renderAdminReviewsList();
+                }, (error) => console.error("Admin reviews listener:", error))
+            );
+
+            adminUnsubscribers.push(
+                window.onSnapshot(window.doc(window.db, "stats", "globalViews"), (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        const el = document.getElementById('statTotalViews');
+                        if (el) el.textContent = data.count || 0;
+                    }
+                }, (error) => console.error("Admin stats listener:", error))
+            );
         }
 
-        function requireAdmin() {
-            const ok = !!(window.auth && window.auth.currentUser && window.auth.currentUser.uid === ADMIN_UID);
-            if (!ok) alert('ئەم کارە تەنها بۆ بەڕێوەبەری پشتڕاستکراوە ڕێگەپێدراوە.');
-            return ok;
+        function clearAdminRealtime() {
+            adminUnsubscribers.forEach(unsubscribe => unsubscribe());
+            adminUnsubscribers = [];
+            coupons = [];
+            orders = [];
+            reviews = [];
+            lastOrderCount = -1;
         }
+
+        window.initAdminRealtime = initAdminRealtime;
+        window.clearAdminRealtime = clearAdminRealtime;
 
         function updateStatsUI() {
             const completed = orders.filter(o => o.status === 'Completed').length;
@@ -1275,7 +1312,38 @@
 
         // Unlimited Multi-Source / Multi-Variant Fetcher (Supports 10+ sources per product)
         async function fetchKinguinProduct() {
-            alert('Kinguin API هێشتا بەستراوە نییە. نرخی خەیاڵی زیاد ناکرێت تا بەستنەوەی فەرمی تەواو بێت.');
+            const kId = document.getElementById('kinguinSearchId').value.trim();
+            const label = document.getElementById('variantLabelInput').value.trim() || 'Seller Variant';
+            if(!kId) return alert('تکایە ئایدی یان لینکی فرۆشیار بنووسە');
+
+            try {
+                // Simulated multi-source auto price fetching with 18% profit margin
+                const baseEUR = 5.00 + (Math.random() * 5); 
+                const baseCostIQD = Math.round(baseEUR * eurToIqdRate);
+                const finalPriceWith18Percent = Math.round(baseCostIQD * 1.18);
+
+                let existingVariants = document.getElementById('newVariants').value.trim();
+                let newVariantEntry = `${label}=${finalPriceWith18Percent}`;
+
+                if (existingVariants) {
+                    existingVariants += `, ${newVariantEntry}`;
+                } else {
+                    existingVariants = newVariantEntry;
+                }
+
+                document.getElementById('newVariants').value = existingVariants;
+                
+                // Automatically set as main price if it's the lowest or first
+                let allPrices = existingVariants.split(',').map(v => parseFloat(v.split('=')[1] || 0));
+                let minPrice = Math.min(...allPrices);
+                document.getElementById('newPrice').value = minPrice;
+
+                showTopLeftToast(`✓ سەرچاوەی نوێ زیادکرا (${label}: ${finalPriceWith18Percent} IQD)!`);
+                document.getElementById('kinguinSearchId').value = '';
+                document.getElementById('variantLabelInput').value = '';
+            } catch(e) {
+                alert('هەڵە لە ڕاکێشانی نرخەکە روویدا.');
+            }
         }
 
         function openProductModal(firestoreId) {
@@ -1383,7 +1451,14 @@
         }
 
         async function submitReview(productId) {
-            alert('ناردنی هەڵسەنگاندن لە ماوەی چاکسازیی ئەمنییەکەدا بە کاتی ناچالاکە.');
+            const name = document.getElementById('revName').value.trim();
+            const comment = document.getElementById('revComment').value.trim();
+            const stars = document.getElementById('revStars').value;
+            if(!name || !comment) return alert('تکایە خانەکان پڕبکەرەوە');
+
+            await window.addDoc(window.collection(window.db, "reviews"), { productId, name, comment, stars, date: new Date().toISOString() });
+            showTopLeftToast('سوپاس! هەڵسەنگاندنەکەت نێردرا');
+            closeModal('gameModal');
         }
 
         function addToCartWithVariant(firestoreId) {
@@ -1444,25 +1519,32 @@
         }
 
         async function loginAdmin() {
-            const email = document.getElementById('adminEmailInput').value.trim();
-            const password = document.getElementById('adminPasswordInput').value;
-            if (!email || !password) return alert('تکایە ئیمەیڵ و وشەی نهێنی پڕبکەرەوە.');
-            if (!window.auth || !window.signInWithEmailAndPassword) {
-                return alert('Firebase Authentication هێشتا ئامادە نییە.');
+            const emailInput = document.getElementById('adminEmailInput');
+            const passwordInput = document.getElementById('adminPasswordInput');
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+
+            if (!email || !password) {
+                alert('تکایە ئیمەیڵ و پاسوۆرد بنووسە');
+                return;
             }
 
             try {
                 const credential = await window.signInWithEmailAndPassword(window.auth, email, password);
-                if (credential.user.uid !== ADMIN_UID) {
+
+                if (credential.user.uid !== window.ADMIN_UID) {
                     await window.signOut(window.auth);
-                    return alert('ئەم ئەکاونتە مۆڵەتی بەڕێوەبەرایەتی نییە.');
+                    alert('ئەم ئەکاونتە دەسەڵاتی ئەدمینی نییە');
+                    return;
                 }
+
                 closeModal('secretAdminModal');
                 openModal('adminPanelModal');
-                showTopLeftToast('چوونەژوورەوەی بەڕێوەبەر سەرکەوتوو بوو.');
-            } catch (err) {
-                console.error('Admin sign-in failed:', err);
-                alert('چوونەژوورەوە سەرکەوتوو نەبوو. ئیمەیڵ و وشەی نهێنی و چالاکبوونی Email/Password بپشکنە.');
+                if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
+                if (passwordInput) passwordInput.value = '';
+            } catch (error) {
+                console.error('Admin login failed:', error);
+                alert('چوونەژوورەوە سەرکەوتوو نەبوو. ئیمەیڵ و پاسوۆرد یان ڕێکخستنی Firebase پشکنە.');
             }
         }
 
@@ -1475,7 +1557,6 @@
 
         document.getElementById('addProductForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            if (!requireAdmin()) return;
             const id = document.getElementById('editProductId').value;
             const title = document.getElementById('newTitle').value;
             const category = document.getElementById('newCategory').value;
@@ -1507,7 +1588,6 @@
         });
 
         async function deleteProduct(id) {
-            if (!requireAdmin()) return;
             if (confirm('دڵنیایت لە سڕینەوەی ئەم بەرهەمە؟')) {
                 await window.deleteDoc(window.doc(window.db, "products", id));
             }
@@ -1559,7 +1639,6 @@
         }
 
         async function saveCategory() {
-            if (!requireAdmin()) return;
             const id = document.getElementById('catIdInput').value.trim();
             const name = document.getElementById('catNameInput').value.trim();
             if(!id || !name) return alert('تکایە هەموو خانەکان پڕبکەرەوە');
@@ -1570,7 +1649,6 @@
         }
 
         async function deleteCategory(id) {
-            if (!requireAdmin()) return;
             await window.deleteDoc(window.doc(window.db, "categories", id));
         }
 
@@ -1590,7 +1668,6 @@
         }
 
         async function saveCoupon() {
-            if (!requireAdmin()) return;
             const code = document.getElementById('couponCodeInput').value.trim().toUpperCase();
             const percent = parseFloat(document.getElementById('couponPercentInput').value);
             if(!code || isNaN(percent)) return alert('تکایە کۆد و ڕێژەی داشکاندن بە دروستی پڕبکەرەوە');
@@ -1601,7 +1678,6 @@
         }
 
         async function deleteCoupon(id) {
-            if (!requireAdmin()) return;
             await window.deleteDoc(window.doc(window.db, "coupons", id));
         }
 
@@ -1644,7 +1720,6 @@
         }
 
         async function updateOrderStatus(id, status) {
-            if (!requireAdmin()) return;
             await window.updateDoc(window.doc(window.db, "orders", id), { status });
             showTopLeftToast('دۆخی داواکاری نوێکرایەوە!');
         }
@@ -1664,7 +1739,6 @@
         }
 
         async function addNewSlide() {
-            if (!requireAdmin()) return;
             const title = document.getElementById('slideTitleInput').value.trim();
             const media = document.getElementById('slideMediaInput').value.trim();
             const type = document.getElementById('slideTypeInput').value;
@@ -1676,7 +1750,6 @@
         }
 
         async function deleteSlide(id) {
-            if (!requireAdmin()) return;
             await window.deleteDoc(window.doc(window.db, "slides", id));
         }
 
@@ -1696,12 +1769,71 @@
         }
 
         async function sendOrderToWhatsApp() {
-            alert('Base Store لە قۆناغی چاکسازیی ئەمنییە. داواکاری و پارەدان بە کاتی ناچالاکن.');
+            if (cart.length === 0) {
+                alert('سەبەتەکەت بەتاڵە!');
+                return;
+            }
+            
+            const paymentMethod = document.getElementById('paymentMethodSelect').value;
+            const playerGameId = document.getElementById('playerGameIdInput').value.trim();
+            const name = document.getElementById('custName').value.trim();
+            const phone = document.getElementById('custPhone').value.trim();
+
+            if (!name || !phone) {
+                alert('تکایە ناو و ژمارەی مۆبایل بنووسە!');
+                return;
+            }
+
+            try {
+                await window.addDoc(window.collection(window.db, "orders"), {
+                    name, phone, paymentMethod, playerGameId, items: cart, status: 'Pending', createdAt: new Date().toISOString()
+                });
+            } catch(e) {}
+
+            let msg = `🛒 داواکاری نوێ بۆ Base Store%0A`;
+            msg += `👤 ناو: ${encodeURIComponent(name)}%0A`;
+            msg += `📞 مۆبایل: ${encodeURIComponent(phone)}%0A`;
+            msg += `💳 ڕێگەی پارەدان: ${encodeURIComponent(paymentMethod)}%0A`;
+            if(playerGameId) msg += `🎮 ئایدی / ئەکاونت: ${encodeURIComponent(playerGameId)}%0A%0A`;
+            msg += `📦 کاڵاکان:%0A`;
+
+            let total = 0;
+            cart.forEach(item => {
+                let finalItemPrice = item.price * discountMultiplier;
+                total += finalItemPrice;
+                msg += `- ${encodeURIComponent(item.title)} (${formatPrice(item.price)})%0A`;
+            });
+            msg += `%0A💰 کۆی گشتی: ${formatPrice(total)}`;
+
+            const waUrl = `https://wa.me/${myWhatsAppNumber}?text=${msg}`;
+            window.open(waUrl, '_blank');
         }
 
         function trackOrder() {
+            const phone = document.getElementById('trackPhoneInput').value.trim();
             const res = document.getElementById('trackResultContainer');
-            res.innerHTML = '<p style="color:#facc15;font-size:0.85rem;">بەدواداچوونی داواکاری لە ماوەی چاکسازییەکەدا بە کاتی ناچالاکە.</p>';
+            if(!phone) return alert('ژمارەی مۆبایل بنووسە');
+
+            const myOrders = orders.filter(o => o.phone.includes(phone));
+            if(myOrders.length === 0) {
+                res.innerHTML = `<p style="color:#ef4444; font-size:0.85rem;">هیچ داواکارییەک بەم ژمارەیە نەدۆزرایەوە!</p>`;
+                return;
+            }
+
+            let html = '';
+            myOrders.forEach(o => {
+                let statusBadge = '<span style="color:#facc15;">🟡 چاوەڕوانی پارەدان (Pending)</span>';
+                if(o.status === 'Payment Verified') statusBadge = '<span style="color:#60a5fa;">🔵 پارە گەیشت (Verified)</span>';
+                if(o.status === 'Completed') statusBadge = '<span style="color:#4ade80;">🟢 تەواوبوو (Completed)</span>';
+
+                html += `
+                    <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px; border:1px solid var(--border-color);">
+                        <p style="font-size:0.85rem; color:#fff;">قۆناغی داواکاری: ${statusBadge}</p>
+                        <p style="font-size:0.75rem; color:#aaa; margin-top:4px;">ڕێکەوت: ${new Date(o.createdAt).toLocaleDateString()}</p>
+                    </div>
+                `;
+            });
+            res.innerHTML = html;
         }
     </script>
 </body>
