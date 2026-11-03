@@ -12,7 +12,7 @@
     <!-- Firebase SDKs Integration -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -49,6 +49,8 @@
         window.setDoc = setDoc;
         window.getDoc = getDoc;
         window.increment = increment;
+        window.query = query;
+        window.where = where;
         window.onSnapshot = onSnapshot;
 
         window.addEventListener('DOMContentLoaded', async () => {
@@ -79,11 +81,13 @@
                     try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     updateAuthUI();
                     loadUserWishlistFromCloud();
+                    loadCustomerOrderHistory();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 } else {
                     // Discord is a separate PKCE session; Firebase sign-out must not erase it.
                     currentUser = savedCustomer && savedCustomer.provider === 'discord' ? savedCustomer : null;
                     updateAuthUI();
+                    loadCustomerOrderHistory();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 }
             });
@@ -541,6 +545,10 @@
                 <div id="authProfileName" style="font-size:1.08rem;font-weight:900;color:#fff;overflow-wrap:anywhere;">ئەکاؤنتەکەم</div>
                 <div id="authProfileEmail" style="font-size:.78rem;color:#d1aab3;margin-top:4px;overflow-wrap:anywhere;"></div>
                 <div id="authProfileProvider" style="display:inline-flex;align-items:center;gap:6px;margin-top:11px;padding:5px 12px;border-radius:30px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);font-size:.75rem;color:#fff;"></div>
+                <div style="margin-top:16px;text-align:right;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;">
+                    <div style="font-weight:900;color:#fff;margin-bottom:9px;"><i class="fa-solid fa-box-open"></i> مێژووی داواکارییەکانم</div>
+                    <div id="customerOrderHistory" style="font-size:.8rem;color:#ddd;">بۆ بینینی داواکارییەکان چاوەڕێ بکە...</div>
+                </div>
                 <button onclick="logoutUser()" style="display:block;width:100%;margin-top:16px;background:linear-gradient(90deg,#b91c1c,#ef4444);color:#fff;border:0;padding:11px 14px;border-radius:11px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-right-from-bracket"></i> دەرچوون لە ئەکاؤنت</button>
             </div>
             <div id="customerAuthOptions">
@@ -884,6 +892,36 @@
                 if (profileCard) profileCard.style.display = 'none';
             }
         }
+
+        async function loadCustomerOrderHistory() {
+            const target = document.getElementById('customerOrderHistory');
+            if (!target) return;
+            const firebaseUser = window.auth && window.auth.currentUser;
+            if (!firebaseUser) {
+                target.innerHTML = '<span style="color:#fbbf24">بۆ پاراستنی داواکارییەکان، پێویستە بە Google یان ئیمەیڵی Firebase بچیتە ژوورەوە. هەژماری Discord بە تەنها هێشتا بە Firebase Auth نەبەستراوەتەوە.</span>';
+                return;
+            }
+            target.textContent = 'بارکردنی داواکارییەکان...';
+            try {
+                const q = window.query(window.collection(window.db, 'orders'), window.where('userId', '==', firebaseUser.uid));
+                const snap = await window.getDocs(q);
+                if (snap.empty) {
+                    target.textContent = 'هێشتا هیچ داواکارییەکت نییە.';
+                    return;
+                }
+                const rows = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+                target.innerHTML = rows.map(o => {
+                    const date = o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—';
+                    const status = o.status || 'Pending';
+                    const count = Array.isArray(o.items) ? o.items.length : 0;
+                    return `<div style="padding:9px 0;border-top:1px solid rgba(255,255,255,.1);"><div style="display:flex;justify-content:space-between;gap:8px;"><b>داواکاری #${String(o.id).slice(-6)}</b><span style="color:#fbbf24">${status}</span></div><div style="color:#aaa;margin-top:4px;">${date} · ${count} کاڵا</div></div>`;
+                }).join('');
+            } catch (error) {
+                console.error('Customer order history:', error);
+                target.textContent = 'نەتوانرا مێژووی داواکارییەکان باربکرێت. تکایە دووبارە هەوڵ بدەرەوە.';
+            }
+        }
+        window.loadCustomerOrderHistory = loadCustomerOrderHistory;
 
         // Discord OAuth2 Authorization Code + PKCE (public client; no client secret in browser).
         const DISCORD_CLIENT_ID = "1567019049618112522";
@@ -1940,11 +1978,24 @@
                 return;
             }
 
+            const firebaseUser = window.auth && window.auth.currentUser;
+            if (!firebaseUser) {
+                alert(currentUser && currentUser.provider === 'discord'
+                    ? 'بۆ ناردنی داواکاری بە شێوەی پارێزراو، تکایە بە Google یان ئیمەیڵی Firebase بچۆ ژوورەوە. هەژماری Discord هێشتا بە Firebase Auth نەبەستراوەتەوە.'
+                    : 'تکایە پێش ناردنی داواکاری بە Google یان ئیمەیڵ بچۆ ژوورەوە.');
+                return;
+            }
             try {
                 await window.addDoc(window.collection(window.db, "orders"), {
-                    name, phone, paymentMethod, playerGameId, items: cart, status: 'Pending', createdAt: new Date().toISOString()
+                    userId: firebaseUser.uid,
+                    name, phone, paymentMethod, playerGameId, items: cart,
+                    status: 'Pending', createdAt: new Date().toISOString()
                 });
-            } catch(e) {}
+            } catch(e) {
+                console.error('Order save failed:', e);
+                alert('داواکارییەکەت لە بنکەدراوە تۆمار نەکرا. تکایە دڵنیابە چوویتە ژوورەوە و دووبارە هەوڵ بدەرەوە.');
+                return;
+            }
 
             let msg = `🛒 داواکاری نوێ بۆ Base Store%0A`;
             msg += `👤 ناو: ${encodeURIComponent(name)}%0A`;
@@ -1961,6 +2012,7 @@
             });
             msg += `%0A💰 کۆی گشتی: ${formatPrice(total)}`;
 
+            if (typeof loadCustomerOrderHistory === 'function') loadCustomerOrderHistory();
             const waUrl = `https://wa.me/${myWhatsAppNumber}?text=${msg}`;
             window.open(waUrl, '_blank');
         }
