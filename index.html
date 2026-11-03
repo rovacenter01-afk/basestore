@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyACK6eIhr21aKJvUVa2fz75f2fpgq9i7KQ",
@@ -28,15 +28,18 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
+        // Keep customer Firebase sessions across refreshes and browser restarts.
+        const authPersistenceReady = setPersistence(auth, browserLocalPersistence);
         const ADMIN_UID = "jXZGaRyQtHNzabsj7Z7PQ299mgk2";
 
         window.db = db;
         window.auth = auth;
+        window.authPersistenceReady = authPersistenceReady;
         window.ADMIN_UID = ADMIN_UID;
         window.signInWithEmailAndPassword = signInWithEmailAndPassword;
         window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.signOut = signOut;
-        window.googleSignIn = async () => signInWithPopup(auth, new GoogleAuthProvider());
+        window.googleSignIn = async () => { await authPersistenceReady; return signInWithPopup(auth, new GoogleAuthProvider()); };
         window.collection = collection;
         window.addDoc = addDoc;
         window.getDocs = getDocs;
@@ -56,7 +59,8 @@
                     if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
                     currentUser = null;
                 } else if (user) {
-                    currentUser = { uid: user.uid, email: user.email, name: user.email };
+                    const providerId = user.providerData && user.providerData[0] ? user.providerData[0].providerId : '';
+                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاونتەکەم', avatar: user.photoURL || '', provider: providerId === 'google.com' ? 'google' : 'email' };
                     updateAuthUI();
                     loadUserWishlistFromCloud();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
@@ -928,6 +932,7 @@
             }
             try {
                 let credential;
+                await window.authPersistenceReady;
                 if (mode === 'register') {
                     credential = await window.createUserWithEmailAndPassword(window.auth, email, password);
                 } else {
