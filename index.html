@@ -12,7 +12,7 @@
     <!-- Firebase SDKs Integration -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment, query, where } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -52,6 +52,7 @@
         window.query = query;
         window.where = where;
         window.onSnapshot = onSnapshot;
+        window.runTransaction = runTransaction;
 
         window.addEventListener('DOMContentLoaded', async () => {
             initFirebaseRealtime();
@@ -682,7 +683,18 @@
                         <textarea id="newNote" rows="2" placeholder="تێبینی بنووسە..."></textarea>
                     </div>
                     <div class="admin-form-group">
-                        <label>دۆخی مەوجودبوون</label>
+                        <label>شێوازی کۆگا</label>
+                        <select id="newStockMode" onchange="toggleStockFields()">
+                            <option value="manual">دەستی (بەردەستە / تەواو بووە)</option>
+                            <option value="quantity">ژمارەیی (دانەی ماوە)</option>
+                        </select>
+                    </div>
+                    <div class="admin-form-group" id="stockQuantityGroup" style="display:none;">
+                        <label>ژمارەی دانەی ماوە</label>
+                        <input type="number" id="newStockQuantity" min="0" step="1" value="0">
+                    </div>
+                    <div class="admin-form-group">
+                        <label>دۆخی مەوجودبوون (بۆ شێوازی دەستی)</label>
                         <select id="newStockStatus">
                             <option value="available">بەردەوامە (In Stock)</option>
                             <option value="out">تەواو بووە (Out of Stock)</option>
@@ -1465,8 +1477,8 @@
                 const card = document.createElement('div');
                 card.className = 'game-card';
                 const mainImg = p.image ? p.image.split(',')[0].trim() : 'https://via.placeholder.com/300x200?text=Base+Store';
-                const isOut = p.stockStatus === 'out';
-                const stockBadgeHtml = isOut ? `<div class="stock-badge" style="color:#ef4444;">تەواو بووە</div>` : `<div class="stock-badge" style="color:#4ade80;">بەردەستە</div>`;
+                const isOut = p.stockMode === 'quantity' ? Number(p.stockQuantity || 0) <= 0 : p.stockStatus === 'out';
+                const stockBadgeHtml = isOut ? `<div class="stock-badge" style="color:#ef4444;">تەواو بووە</div>` : `<div class="stock-badge" style="color:#4ade80;">${p.stockMode === 'quantity' ? 'ماوە: ' + Number(p.stockQuantity || 0) + ' دانە' : 'بەردەستە'}</div>`;
                 
                 const isWished = wishlist.includes(p.firestoreId) ? 'active' : '';
                 const wishBtnHtml = `<div class="wishlist-btn ${isWished}" onclick="toggleWishlist('${p.firestoreId}', event)"><i class="fa-solid fa-heart"></i></div>`;
@@ -1623,7 +1635,7 @@
                 </div>
             `;
 
-            const isOut = p.stockStatus === 'out';
+            const isOut = p.stockMode === 'quantity' ? Number(p.stockQuantity || 0) <= 0 : p.stockStatus === 'out';
             const actionBtn = isOut 
                 ? `<button disabled style="width:100%; background:#444; color:#aaa; border:none; padding:0.8rem; border-radius:12px; font-weight:bold; margin-top:15px; cursor:not-allowed;">ئەم بەرهەمە لەبەردەستدا نییە</button>`
                 : `<button onclick="addToCartWithVariant('${p.firestoreId}')" class="admin-submit-btn" style="margin-top:15px; background:#10b981; border-color:#10b981; color:#000;">زیادکردن بۆ سەبەتە</button>`;
@@ -1663,7 +1675,11 @@
         function addToCartWithVariant(firestoreId) {
             const p = products.find(x => x.firestoreId === firestoreId);
             const itemTitle = currentSelectedVariantLabel ? `${p.title} (${currentSelectedVariantLabel})` : p.title;
-            cart.push({ ...p, title: itemTitle, price: selectedVariantPrice });
+            if (p.stockMode === 'quantity') {
+                const inCart = cart.filter(x => x.firestoreId === firestoreId).length;
+                if (inCart >= Number(p.stockQuantity || 0)) return alert('ژمارەی ئەم بەرهەمە لە کۆگادا بەس نییە.');
+            }
+            cart.push({ ...p, title: itemTitle, price: selectedVariantPrice, firestoreId });
             updateCart();
             closeModal('gameModal');
             showTopLeftToast('زیادکرا بۆ سەبەتە ✓');
@@ -1767,9 +1783,11 @@
             const delivery = document.getElementById('newDelivery').value;
             const note = document.getElementById('newNote').value;
             const stockStatus = document.getElementById('newStockStatus').value;
+            const stockMode = document.getElementById('newStockMode').value;
+            const stockQuantity = Math.max(0, Math.floor(Number(document.getElementById('newStockQuantity').value) || 0));
             const image = document.getElementById('newImg').value;
 
-            const productData = { title, category, variants, price, oldPrice, platform, region, delivery, note, stockStatus, image };
+            const productData = { title, category, variants, price, oldPrice, platform, region, delivery, note, stockStatus, stockMode, stockQuantity, image };
 
             try {
                 if (id) {
@@ -1792,6 +1810,12 @@
             }
         }
 
+        function toggleStockFields() {
+            const mode = document.getElementById('newStockMode');
+            const group = document.getElementById('stockQuantityGroup');
+            if (mode && group) group.style.display = mode.value === 'quantity' ? 'block' : 'none';
+        }
+
         function editProduct(id) {
             const p = products.find(x => x.firestoreId === id);
             if (!p) return;
@@ -1806,6 +1830,9 @@
             document.getElementById('newDelivery').value = p.delivery || '';
             document.getElementById('newNote').value = p.note || '';
             document.getElementById('newStockStatus').value = p.stockStatus || 'available';
+            document.getElementById('newStockMode').value = p.stockMode || 'manual';
+            document.getElementById('newStockQuantity').value = Number(p.stockQuantity || 0);
+            toggleStockFields();
             document.getElementById('newImg').value = p.image || '';
         }
 
@@ -1826,7 +1853,7 @@
             filtered.forEach(p => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:8px; border-radius:8px; margin-bottom:6px;">
-                        <span style="font-size:0.85rem;">${p.title} (${p.price} IQD)</span>
+                        <span style="font-size:0.85rem;">${p.title} (${p.price} IQD) · ${p.stockMode === 'quantity' ? 'کۆگا: ' + Number(p.stockQuantity || 0) : (p.stockStatus === 'out' ? 'تەواو بووە' : 'دەستی: بەردەستە')}</span>
                         <div style="display:flex; gap:6px;">
                             <button onclick="editProduct('${p.firestoreId}')" style="background:#3b82f6; border:none; color:#fff; padding:4px 8px; border-radius:6px; cursor:pointer;">دەستکاری</button>
                             <button onclick="deleteProduct('${p.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:4px 8px; border-radius:6px; cursor:pointer;">سڕینەوە</button>
@@ -1944,8 +1971,35 @@
         }
 
         async function updateOrderStatus(id, status) {
-            await window.updateDoc(window.doc(window.db, "orders", id), { status });
-            showTopLeftToast('دۆخی داواکاری نوێکرایەوە!');
+            try {
+                if (!window.auth.currentUser || window.auth.currentUser.uid !== window.ADMIN_UID) throw new Error('دەسەڵاتی ئەدمین پێویستە.');
+                await window.runTransaction(window.db, async (tx) => {
+                    const orderRef = window.doc(window.db, 'orders', id);
+                    const orderSnap = await tx.get(orderRef);
+                    if (!orderSnap.exists()) throw new Error('داواکاری نەدۆزرایەوە.');
+                    const orderData = orderSnap.data();
+                    const items = Array.isArray(orderData.items) ? orderData.items : [];
+                    const counts = {};
+                    items.forEach(item => { if (item.firestoreId) counts[item.firestoreId] = (counts[item.firestoreId] || 0) + 1; });
+                    const shouldAdjust = status === 'Completed' && !orderData.stockAdjusted;
+                    const productRefs = shouldAdjust ? Object.keys(counts).map(pid => window.doc(window.db, 'products', pid)) : [];
+                    const productSnaps = [];
+                    for (const ref of productRefs) productSnaps.push(await tx.get(ref));
+                    if (shouldAdjust) {
+                        productSnaps.forEach((snap, i) => {
+                            if (!snap.exists()) return;
+                            const data = snap.data();
+                            if (data.stockMode === 'quantity') {
+                                const remaining = Number(data.stockQuantity || 0) - counts[productRefs[i].id];
+                                if (remaining < 0) throw new Error('کۆگای بەرهەمێک بەس نییە: ' + (data.title || productRefs[i].id));
+                                tx.update(productRefs[i], { stockQuantity: remaining });
+                            }
+                        });
+                    }
+                    tx.update(orderRef, { status, ...(shouldAdjust ? { stockAdjusted: true, stockAdjustedAt: new Date().toISOString() } : {}) });
+                });
+                showTopLeftToast('دۆخی داواکاری نوێکرایەوە!');
+            } catch (err) { alert('نەتوانرا دۆخی داواکاری بگۆڕدرێت: ' + err.message); renderAdminOrdersList(); }
         }
 
         function renderAdminReviewsList() {
