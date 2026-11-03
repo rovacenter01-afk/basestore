@@ -51,28 +51,37 @@
         window.increment = increment;
         window.onSnapshot = onSnapshot;
 
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('DOMContentLoaded', async () => {
             initFirebaseRealtime();
             trackSiteVisit();
+            // Do not attach the auth observer until Firebase has restored local persistence.
+            await authPersistenceReady;
             onAuthStateChanged(auth, (user) => {
-                // Customer profile cache is used only to restore the visible profile UI.
-                // Firebase Auth remains the authority for Google/email access to protected data.
                 let savedCustomer = null;
                 try { savedCustomer = JSON.parse(localStorage.getItem('baseStoreCustomerProfile') || 'null'); } catch (_) {}
+                const providers = user ? (user.providerData || []).map(item => item.providerId) : [];
+                const isGoogle = !!user && providers.includes('google.com');
+
                 if (user && user.uid === ADMIN_UID) {
+                    // Keep admin tools active, but do not hide a Google profile merely because
+                    // the Google account also has the administrator UID.
                     if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
-                    currentUser = savedCustomer || null;
+                    if (isGoogle) {
+                        currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاؤنتەکەم', avatar: user.photoURL || '', provider: 'google' };
+                        try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
+                    } else {
+                        currentUser = savedCustomer && savedCustomer.provider === 'discord' ? savedCustomer : null;
+                    }
                     updateAuthUI();
                 } else if (user) {
-                    const providers = (user.providerData || []).map(item => item.providerId);
-                    const provider = providers.includes('google.com') ? 'google' : 'email';
-                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاونتەکەم', avatar: user.photoURL || '', provider };
+                    const provider = isGoogle ? 'google' : 'email';
+                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاؤنتەکەم', avatar: user.photoURL || '', provider };
                     try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     updateAuthUI();
                     loadUserWishlistFromCloud();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
                 } else {
-                    // Discord uses its own OAuth PKCE session; restore its profile after refresh.
+                    // Discord is a separate PKCE session; Firebase sign-out must not erase it.
                     currentUser = savedCustomer && savedCustomer.provider === 'discord' ? savedCustomer : null;
                     updateAuthUI();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
