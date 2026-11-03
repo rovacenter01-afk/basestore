@@ -1905,18 +1905,33 @@
             let html = '';
             const sortedOrders = [...orders].sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
             if (!sortedOrders.length) { list.innerHTML = '<p style="color:#aaa;text-align:center;padding:18px;">هیچ داواکارییەک نەدۆزرایەوە.</p>'; return; }
+            const safeText = value => String(value ?? '—').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+            const formatOrderPrice = value => currentCurrency === 'USD' ? '$' + ((Number(value) || 0) / usdRate).toFixed(2) : Math.round(Number(value) || 0).toLocaleString() + ' IQD';
             sortedOrders.forEach(o => {
                 const orderDate = o.createdAt ? new Date(o.createdAt) : null;
-                const orderDateText = orderDate && !isNaN(orderDate) ? orderDate.toLocaleString('en-GB', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true }) : 'کاتی بەردەست نییە';
+                const orderDateText = orderDate && !isNaN(orderDate) ? orderDate.toLocaleString('en-GB', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true }) : 'کاتی بەردەست نییە';
+                const items = Array.isArray(o.items) ? o.items : [];
+                const multiplier = Number.isFinite(Number(o.discountMultiplier)) ? Number(o.discountMultiplier) : 1;
+                const calculatedTotal = items.reduce((sum, item) => sum + (Number(item.price) || 0) * multiplier, 0);
+                const orderTotal = Number.isFinite(Number(o.totalAmount)) ? Number(o.totalAmount) : calculatedTotal;
+                const itemsHtml = items.length ? items.map((item, index) => {
+                    const title = safeText(item.title || item.name || 'کاڵای بێ‌ناو');
+                    const price = Number(item.price) || 0;
+                    return `<div style="display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:.8rem;"><span>${index + 1}. ${title}</span><strong style="color:#4ade80;white-space:nowrap;">${formatOrderPrice(price * multiplier)}</strong></div>`;
+                }).join('') : '<p style="color:#fbbf24;font-size:.8rem;">وردەکاری کاڵاکان لەم داواکارییە کۆنەدا تۆمار نەکراوە.</p>';
                 html += `
-                    <div style="background:rgba(0,0,0,0.4); padding:10px; border-radius:8px; margin-bottom:8px; border:1px solid var(--border-color);">
-                        <p style="font-size:0.85rem; color:#fff;">داواکاری #${String(o.firestoreId || '').slice(-6)} · کڕیار: <strong>${o.name || '—'}</strong> (${o.phone || '—'})</p>
+                    <div style="background:rgba(0,0,0,0.4); padding:12px; border-radius:8px; margin-bottom:10px; border:1px solid var(--border-color);">
+                        <p style="font-size:0.85rem;color:#fff;">داواکاری #${safeText(String(o.firestoreId || '').slice(-6))} · کڕیار: <strong>${safeText(o.name)}</strong> (${safeText(o.phone)})</p>
                         <p style="font-size:0.78rem;color:#facc15;margin:5px 0;">🕒 کات: ${orderDateText}</p>
-                        <p style="font-size:0.8rem; color:#4ade80;">ڕێگەی پارەدان: ${o.paymentMethod || '—'} | ئایدی: ${o.playerGameId || 'N/A'}</p>
-                        <p style="font-size:0.78rem;color:#aaa;">ژمارەی کاڵا: ${Array.isArray(o.items) ? o.items.length : 0}</p>
-                        <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-size:0.8rem; color:#aaa;">دۆخ:</span>
-                            <select onchange="updateOrderStatus('${o.firestoreId}', this.value)" style="background:#222; color:#fff; border:1px solid #555; padding:3px 8px; border-radius:6px; font-size:0.8rem;">
+                        <p style="font-size:0.8rem;color:#4ade80;">پارەدان: ${safeText(o.paymentMethod)} | ئایدی: ${safeText(o.playerGameId || 'N/A')}</p>
+                        <div style="margin-top:10px;padding:9px;background:rgba(255,255,255,.035);border-radius:7px;">
+                            <p style="font-weight:800;color:#fff;margin-bottom:5px;">📦 کاڵاکانی کڕدراو (${items.length})</p>
+                            ${itemsHtml}
+                            <p style="text-align:left;color:#facc15;font-weight:900;margin-top:9px;">کۆی گشتی: ${formatOrderPrice(orderTotal)}</p>
+                        </div>
+                        <div style="margin-top:9px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                            <span style="font-size:0.8rem;color:#aaa;">دۆخ:</span>
+                            <select onchange="updateOrderStatus('${safeText(o.firestoreId)}', this.value)" style="background:#222;color:#fff;border:1px solid #555;padding:5px 8px;border-radius:6px;font-size:.8rem;">
                                 <option value="Pending" ${o.status==='Pending'?'selected':''}>چاوەڕوانی پارەدان (Pending)</option>
                                 <option value="Payment Verified" ${o.status==='Payment Verified'?'selected':''}>پارە گەیشت (Verified)</option>
                                 <option value="Completed" ${o.status==='Completed'?'selected':''}>تەواوبوو و نێردرا (Completed)</option>
@@ -2004,6 +2019,8 @@
                 await window.addDoc(window.collection(window.db, "orders"), {
                     userId: firebaseUser.uid,
                     name, phone, paymentMethod, playerGameId, items: cart,
+                    discountMultiplier,
+                    totalAmount: cart.reduce((sum, item) => sum + (Number(item.price) || 0) * discountMultiplier, 0),
                     status: 'Pending', createdAt: new Date().toISOString()
                 });
             } catch(e) {
