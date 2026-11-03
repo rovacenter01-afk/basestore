@@ -531,6 +531,19 @@
             <h3>بەستنەوەی ئەکاونت / چوونەژوورەوە</h3>
             <p style="font-size:0.8rem; color:#aaa; margin:10px 0 20px 0;">بۆ ئەوەی داتاکانت (دڵخوازەکانت) هەمیشە لەگەڵت بمێنن، بە ئەکاونتەکەت بچۆ ژوورەوە:</p>
             
+            <div id="authProfileCard" style="display:none; margin:18px 0 14px; padding:18px 14px; border:1px solid rgba(255,42,75,.45); border-radius:18px; background:linear-gradient(145deg,rgba(128,0,32,.34),rgba(15,5,10,.92)); box-shadow:0 12px 30px rgba(0,0,0,.28); text-align:center;">
+                <div style="position:relative; width:82px; height:82px; margin:0 auto 12px;">
+                    <img id="authProfileAvatar" alt="Profile" style="display:none; width:82px; height:82px; object-fit:cover; border-radius:50%; border:3px solid #ff2a4b; box-shadow:0 0 20px rgba(255,42,75,.28);">
+                    <div id="authProfileInitial" style="width:82px;height:82px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#800020,#ff2a4b);border:3px solid #ff8295;color:#fff;font-size:2rem;font-weight:900;">B</div>
+                    <span style="position:absolute;bottom:2px;right:2px;width:17px;height:17px;border-radius:50%;background:#22c55e;border:3px solid #21040c;"></span>
+                </div>
+                <div style="font-size:.72rem;color:#fda4af;margin-bottom:4px;">بە سەرکەوتوویی چوویتە ژوورەوە</div>
+                <div id="authProfileName" style="font-size:1.08rem;font-weight:900;color:#fff;overflow-wrap:anywhere;">ئەکاؤنتەکەم</div>
+                <div id="authProfileEmail" style="font-size:.78rem;color:#d1aab3;margin-top:4px;overflow-wrap:anywhere;"></div>
+                <div id="authProfileProvider" style="display:inline-flex;align-items:center;gap:6px;margin-top:11px;padding:5px 12px;border-radius:30px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);font-size:.75rem;color:#fff;"></div>
+                <button onclick="logoutUser()" style="display:block;width:100%;margin-top:16px;background:linear-gradient(90deg,#b91c1c,#ef4444);color:#fff;border:0;padding:11px 14px;border-radius:11px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-right-from-bracket"></i> دەرچوون لە ئەکاؤنت</button>
+            </div>
+            <div id="customerAuthOptions">
             <div style="margin:15px 0; color:#aaa; font-size:0.85rem;">بە ئیمەیڵ و پاسوۆرد هەژمار دروست بکە یان بچۆ ژوورەوە</div>
             <div class="admin-form-group" style="text-align:right;">
                 <label>ئیمەیڵ:</label>
@@ -545,10 +558,9 @@
             <button onclick="loginWithGoogle()" style="width:100%; margin-top:9px; background:#fff; color:#222; border:0; padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;"><i class="fa-brands fa-google"></i> چوونەژوورەوە بە Gmail / Google</button>
             <button onclick="loginWithDiscord()" style="width:100%; margin-top:9px; background:#5865F2; color:#fff; border:0; padding:0.8rem; border-radius:10px; font-weight:bold; cursor:pointer;"><i class="fa-brands fa-discord"></i> چوونەژوورەوە بە Discord</button>
             <p style="font-size:0.72rem;color:#999;margin-top:10px;">بۆ دروستکردنی هەژمار، پێویستە Email/Password لە Firebase Authentication چالاک بێت.</p>
-            <div id="logoutSection" style="margin-top:15px; display:none;">
-                <button onclick="logoutUser()" style="background:#ef4444; color:#fff; border:none; padding:0.5rem 1rem; border-radius:8px; cursor:pointer; font-size:0.8rem;">دەرچوون لە ئەکاونت (Logout)</button>
-            </div>
-        </div>
+            </div> <!-- /customerAuthOptions -->
+            <div id="logoutSection" style="display:none;"></div>
+</div>
     </div>
 
     <div class="modal" id="currencyModal">
@@ -836,13 +848,40 @@
 
         function updateAuthUI() {
             const btnText = document.getElementById('authBtnText');
-            const logoutSec = document.getElementById('logoutSection');
-            if(currentUser) {
-                if (btnText) btnText.textContent = (currentUser.name || currentUser.email || 'ئەکاونتەکەم') + (currentUser.provider === 'discord' ? ' · Discord' : currentUser.provider === 'google' ? ' · Google' : '');
-                if(logoutSec) logoutSec.style.display = 'block';
+            const authOptions = document.getElementById('customerAuthOptions');
+            const profileCard = document.getElementById('authProfileCard');
+            const avatar = document.getElementById('authProfileAvatar');
+            const initial = document.getElementById('authProfileInitial');
+            const nameEl = document.getElementById('authProfileName');
+            const emailEl = document.getElementById('authProfileEmail');
+            const providerEl = document.getElementById('authProfileProvider');
+            if (currentUser) {
+                const displayName = currentUser.name || currentUser.email || 'ئەکاؤنتەکەم';
+                const providerName = currentUser.provider === 'discord' ? 'Discord' : currentUser.provider === 'google' ? 'Google' : 'Email';
+                if (btnText) btnText.textContent = displayName;
+                if (authOptions) authOptions.style.display = 'none';
+                if (profileCard) profileCard.style.display = 'block';
+                if (nameEl) nameEl.textContent = displayName;
+                if (emailEl) emailEl.textContent = currentUser.email || '';
+                if (providerEl) {
+                    const iconClass = currentUser.provider === 'discord' ? 'fa-brands fa-discord' : currentUser.provider === 'google' ? 'fa-brands fa-google' : 'fa-solid fa-envelope';
+                    const iconColor = currentUser.provider === 'discord' ? '#8794ff' : currentUser.provider === 'google' ? '#f87171' : '#4ade80';
+                    providerEl.innerHTML = `<i class="${iconClass}" style="color:${iconColor}"></i><span>${providerName} · ئەکاؤنت چالاکە</span>`;
+                }
+                if (avatar && initial) {
+                    if (currentUser.avatar) {
+                        avatar.src = currentUser.avatar;
+                        avatar.style.display = 'block';
+                        initial.style.display = 'none';
+                        avatar.onerror = () => { avatar.style.display = 'none'; initial.style.display = 'flex'; };
+                    } else {
+                        avatar.removeAttribute('src'); avatar.style.display = 'none'; initial.style.display = 'flex';
+                    }
+                }
             } else {
                 if (btnText) btnText.textContent = 'چوونەژوورەوە';
-                if(logoutSec) logoutSec.style.display = 'none';
+                if (authOptions) authOptions.style.display = 'block';
+                if (profileCard) profileCard.style.display = 'none';
             }
         }
 
