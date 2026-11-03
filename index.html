@@ -57,10 +57,14 @@
             onAuthStateChanged(auth, (user) => {
                 if (user && user.uid === ADMIN_UID) {
                     if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
-                    currentUser = null;
+                    // Keep a separately authenticated Discord customer profile visible
+                    // even while the Firebase admin session remains active.
+                    try { currentUser = JSON.parse(localStorage.getItem('baseStoreDiscordUser') || 'null'); } catch (_) { currentUser = null; }
+                    updateAuthUI();
                 } else if (user) {
-                    const providerId = user.providerData && user.providerData[0] ? user.providerData[0].providerId : '';
-                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاونتەکەم', avatar: user.photoURL || '', provider: providerId === 'google.com' ? 'google' : 'email' };
+                    const providers = (user.providerData || []).map(item => item.providerId);
+                    const provider = providers.includes('google.com') ? 'google' : 'email';
+                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاونتەکەم', avatar: user.photoURL || '', provider };
                     updateAuthUI();
                     loadUserWishlistFromCloud();
                     if (typeof window.clearAdminRealtime === 'function') window.clearAdminRealtime();
