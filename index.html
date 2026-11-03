@@ -183,6 +183,7 @@
         }
         .pills-bar::-webkit-scrollbar { display: none; }
         
+        .pill-btn.category-colored:hover, .pill-btn.category-colored.active { border-color:var(--category-color) !important; box-shadow:0 0 15px var(--category-color), inset 0 0 8px var(--category-color) !important; color:var(--category-color) !important; }
         .pill-btn {
             background: rgba(255, 255, 255, 0.05) !important;
             border: 1px solid var(--border-color);
@@ -711,6 +712,8 @@
                 <div class="admin-form-group">
                     <label>ناوی بەش بە کوردی</label>
                     <input type="text" id="catNameInput" placeholder="پلەیستێشن، ئێکسبۆکس...">
+                    <label style="display:block;margin-top:10px;">ڕەنگی بەش</label>
+                    <input type="color" id="catColorInput" value="#3b82f6" style="width:100%;height:42px;padding:4px;background:#222;border:1px solid #555;border-radius:8px;">
                 </div>
                 <button onclick="saveCategory()" class="admin-submit-btn">زیادکردنی بەش</button>
                 <div id="adminCategoriesList" style="margin-top:1rem;"></div>
@@ -1378,8 +1381,10 @@
 
             categories.forEach(cat => {
                 const isActive = currentFilter === cat.id ? 'active' : '';
-                pillsHtml += `<button class="pill-btn pill-${cat.id} ${isActive}" onclick="setQuickFilter('${cat.id}')">${cat.name}</button>`;
-                browseHtml += `<button onclick="setQuickFilter('${cat.id}'); closeSidebars();" class="pill-btn pill-${cat.id} ${isActive}" style="width:100%; margin-bottom:8px; justify-content: flex-start;">${cat.name}</button>`;
+                const catColor = cat.color || ({playstation:'#3b82f6',xbox:'#22c55e',cards:'#facc15',mobile:'#cbd5e1',pc:'#ff2a4b',subscriptions:'#facc15',all:'#ffffff'}[cat.id] || '#a855f7');
+                const colorStyle = `--category-color:${catColor};`;
+                pillsHtml += `<button class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}" onclick="setQuickFilter('${cat.id}')">${cat.name}</button>`;
+                browseHtml += `<button onclick="setQuickFilter('${cat.id}'); closeSidebars();" class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}width:100%; margin-bottom:8px; justify-content: flex-start;">${cat.name}</button>`;
                 if(cat.id !== 'all') selectHtml += `<option value="${cat.id}">${cat.name}</option>`;
             });
 
@@ -1833,13 +1838,17 @@
         }
 
         async function saveCategory() {
-            const id = document.getElementById('catIdInput').value.trim();
+            const id = document.getElementById('catIdInput').value.trim().toLowerCase().replace(/\s+/g, '-');
             const name = document.getElementById('catNameInput').value.trim();
-            if(!id || !name) return alert('تکایە هەموو خانەکان پڕبکەرەوە');
-            await window.addDoc(window.collection(window.db, "categories"), { id, name });
-            document.getElementById('catIdInput').value = '';
-            document.getElementById('catNameInput').value = '';
-            showTopLeftToast('بەش زیادکرا!');
+            const color = document.getElementById('catColorInput').value || '#a855f7';
+            if(!id || !name) return alert('تکایە کۆد و ناوی بەش پڕبکەرەوە');
+            try {
+                await window.addDoc(window.collection(window.db, "categories"), { id, name, color });
+                document.getElementById('catIdInput').value = '';
+                document.getElementById('catNameInput').value = '';
+                document.getElementById('catColorInput').value = '#3b82f6';
+                showTopLeftToast('بەش و ڕەنگەکەی زیادکران!');
+            } catch(error) { console.error('Save category:', error); alert('بەشەکە زیاد نەکرا: ' + error.message); }
         }
 
         async function deleteCategory(id) {
@@ -1853,7 +1862,7 @@
             categories.filter(c => c.id !== 'all').forEach(c => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; margin-bottom:4px;">
-                        <span>${c.name} (${c.id})</span>
+                        <span style="display:flex;align-items:center;gap:8px;"><i style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${c.color || '#777'};"></i>${c.name} (${c.id})</span>
                         ${c.firestoreId ? `<button onclick="deleteCategory('${c.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:2px 6px; border-radius:4px; cursor:pointer;">سڕینەوە</button>` : ''}
                     </div>
                 `;
@@ -1894,11 +1903,17 @@
             const list = document.getElementById('adminOrdersList');
             if(!list) return;
             let html = '';
-            orders.forEach(o => {
+            const sortedOrders = [...orders].sort((a,b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+            if (!sortedOrders.length) { list.innerHTML = '<p style="color:#aaa;text-align:center;padding:18px;">هیچ داواکارییەک نەدۆزرایەوە.</p>'; return; }
+            sortedOrders.forEach(o => {
+                const orderDate = o.createdAt ? new Date(o.createdAt) : null;
+                const orderDateText = orderDate && !isNaN(orderDate) ? orderDate.toLocaleString('en-GB', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true }) : 'کاتی بەردەست نییە';
                 html += `
                     <div style="background:rgba(0,0,0,0.4); padding:10px; border-radius:8px; margin-bottom:8px; border:1px solid var(--border-color);">
-                        <p style="font-size:0.85rem; color:#fff;">کڕیار: <strong>${o.name}</strong> (${o.phone})</p>
-                        <p style="font-size:0.8rem; color:#4ade80;">ڕێگەی پارەدان: ${o.paymentMethod} | ئایدی: ${o.playerGameId || 'N/A'}</p>
+                        <p style="font-size:0.85rem; color:#fff;">داواکاری #${String(o.firestoreId || '').slice(-6)} · کڕیار: <strong>${o.name || '—'}</strong> (${o.phone || '—'})</p>
+                        <p style="font-size:0.78rem;color:#facc15;margin:5px 0;">🕒 کات: ${orderDateText}</p>
+                        <p style="font-size:0.8rem; color:#4ade80;">ڕێگەی پارەدان: ${o.paymentMethod || '—'} | ئایدی: ${o.playerGameId || 'N/A'}</p>
+                        <p style="font-size:0.78rem;color:#aaa;">ژمارەی کاڵا: ${Array.isArray(o.items) ? o.items.length : 0}</p>
                         <div style="margin-top:6px; display:flex; justify-content:space-between; align-items:center;">
                             <span style="font-size:0.8rem; color:#aaa;">دۆخ:</span>
                             <select onchange="updateOrderStatus('${o.firestoreId}', this.value)" style="background:#222; color:#fff; border:1px solid #555; padding:3px 8px; border-radius:6px; font-size:0.8rem;">
