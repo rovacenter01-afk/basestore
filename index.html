@@ -397,13 +397,41 @@
         .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 150; display: none; }
         .overlay.show { display: block; }
     </style>
+
+    <style id="basestore-responsive-hardening">
+      *, *::before, *::after { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+      body { min-width: 320px; overflow-x: hidden; }
+      img, video, iframe { max-width: 100%; }
+      input, select, textarea, button { max-width: 100%; font: inherit; }
+      button, a { touch-action: manipulation; }
+      .games-grid, .subscriptions-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 155px), 1fr)); }
+      .admin-form-group input, .admin-form-group select, .admin-form-group textarea { width: 100%; min-width: 0; }
+      @media (max-width: 767px) {
+        .container, main, .main-container { width: 100% !important; max-width: 100% !important; padding-left: 12px !important; padding-right: 12px !important; }
+        .games-grid, .subscriptions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+        .game-card { min-width: 0; }
+        .game-title { overflow-wrap: anywhere; }
+        .admin-panel, .admin-content, .modal-content { max-width: calc(100vw - 20px); }
+        .admin-tab-btn { white-space: normal; min-height: 42px; }
+        table { display: block; max-width: 100%; overflow-x: auto; }
+        .spotlight-banner { min-height: 190px; }
+      }
+      @media (max-width: 380px) {
+        .games-grid, .subscriptions-grid { grid-template-columns: minmax(0, 1fr) !important; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+      }
+    </style>
+
 </head>
 <body>
 
     <!-- Top Left Toast Notification Container -->
     <div id="topToastContainer"></div>
 
-    <a href="https://wa.me/9647507285645" target="_blank" class="floating-whatsapp" title="پشتیوانی واتسئاپ">
+    <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" class="floating-whatsapp" title="پشتیوانی واتسئاپ">
         <i class="fa-brands fa-whatsapp"></i>
     </a>
 
@@ -463,10 +491,10 @@
             <button onclick="openModal('trackOrderModal')" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; background:rgba(59,130,246,0.15); border:1px solid #3b82f6; cursor:pointer;">
                 <i class="fa-solid fa-truck-fast"></i> بەدواداچوونی داواکاری (Track Order)
             </button>
-            <a href="https://wa.me/9647507285645" target="_blank" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(37,211,102,0.15); border:1px solid var(--whatsapp-green);">
+            <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(37,211,102,0.15); border:1px solid var(--whatsapp-green);">
                 <i class="fa-brands fa-whatsapp"></i> پەیوەندی واتس ئاپ
             </a>
-            <a href="https://discord.gg/Rp4qgeRGCt" target="_blank" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(88,101,242,0.15); border:1px solid var(--discord-blurple);">
+            <a href="https://discord.gg/Rp4qgeRGCt" target="_blank" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(88,101,242,0.15); border:1px solid var(--discord-blurple);">
                 <i class="fa-brands fa-discord"></i> دیسکۆرد (Discord)
             </a>
         </div>
@@ -854,6 +882,16 @@
     <div class="overlay" id="overlay" onclick="closeSidebars(); closeModal('gameModal'); closeModal('secretAdminModal'); closeModal('adminPanelModal'); closeModal('currencyModal'); closeModal('trackOrderModal'); closeModal('authModal');"></div>
 
     <script>
+        // Safe rendering helpers: escape untrusted text and accept only http(s) media URLs.
+        function bsEscapeHTML(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        }
+        function bsSafeMediaURL(value) {
+            try {
+                const url = new URL(String(value || ''), window.location.href);
+                return (url.protocol === 'https:' || url.protocol === 'http:') ? bsEscapeHTML(url.href) : '';
+            } catch (_) { return ''; }
+        }
         const myWhatsAppNumber = "9647507285645";
         let currentCurrency = 'IQD';
         let eurToIqdRate = 1620;
@@ -1422,15 +1460,17 @@
             let dotsHtml = '';
 
             slides.forEach((slide, idx) => {
-                const mediaTag = slide.type === 'video' 
-                    ? `<video src="${slide.media}" class="spotlight-media" autoplay loop muted playsinline></video>`
-                    : `<img src="${slide.media}" class="spotlight-media" alt="Ad">`;
+                const mediaURL = bsSafeMediaURL(slide.media);
+                const safeTitle = bsEscapeHTML(slide.title);
+                const mediaTag = !mediaURL ? '' : (slide.type === 'video' 
+                    ? `<video src="${mediaURL}" class="spotlight-media" autoplay loop muted playsinline preload="none"></video>`
+                    : `<img src="${mediaURL}" class="spotlight-media" alt="Ad" loading="lazy" decoding="async">`);
                 
                 slidesHtml += `
                     <div class="spotlight-slide ${idx === 0 ? 'active' : ''}" id="slide-${idx}">
                         ${mediaTag}
                         <div style="position:relative; z-index:3; padding:20px; background:linear-gradient(to top, rgba(0,0,0,0.8), transparent); width:100%;">
-                            <h2 style="color:#fff; font-size:1.2rem; font-weight:900;">${slide.title}</h2>
+                            <h2 style="color:#fff; font-size:1.2rem; font-weight:900;">${safeTitle}</h2>
                         </div>
                     </div>
                 `;
@@ -1678,12 +1718,14 @@
             filtered.forEach(p => {
                 const card = document.createElement('div');
                 card.className = 'game-card';
-                const mainImg = p.image ? p.image.split(',')[0].trim() : 'https://via.placeholder.com/300x200?text=Base+Store';
+                const mainImg = bsSafeMediaURL(p.image ? p.image.split(',')[0].trim() : 'https://via.placeholder.com/300x200?text=Base+Store');
+                const safeProductId = bsEscapeHTML(p.firestoreId);
+                const safeProductTitle = bsEscapeHTML(p.title);
                 const isOut = p.stockMode === 'quantity' ? Number(p.stockQuantity || 0) <= 0 : p.stockStatus === 'out';
                 const stockBadgeHtml = isOut ? `<div class="stock-badge" style="color:#ef4444;">تەواو بووە</div>` : `<div class="stock-badge" style="color:#4ade80;">${p.stockMode === 'quantity' ? 'ماوە: ' + Number(p.stockQuantity || 0) + ' دانە' : 'بەردەستە'}</div>`;
                 
                 const isWished = wishlist.includes(p.firestoreId) ? 'active' : '';
-                const wishBtnHtml = `<div class="wishlist-btn ${isWished}" onclick="toggleWishlist('${p.firestoreId}', event)"><i class="fa-solid fa-heart"></i></div>`;
+                const wishBtnHtml = `<div class="wishlist-btn ${isWished}" onclick="toggleWishlist('${safeProductId}', event)"><i class="fa-solid fa-heart"></i></div>`;
 
                 let oldPriceHtml = p.oldPrice ? `<span class="old-price-strike">${formatPrice(p.oldPrice)}</span>` : '';
 
@@ -1702,18 +1744,18 @@
                 card.innerHTML = `
                     ${stockBadgeHtml}
                     ${wishBtnHtml}
-                    <div class="game-img-wrapper" onclick="openProductModal('${p.firestoreId}')">
-                        <img src="${mainImg}" class="game-img" alt="${p.title}">
+                    <div class="game-img-wrapper" onclick="openProductModal('${safeProductId}')">
+                        <img src="${mainImg}" class="game-img" alt="${safeProductTitle}" loading="lazy" decoding="async">
                     </div>
                     <div class="game-info">
-                        <div class="game-title" onclick="openProductModal('${p.firestoreId}')">${p.title}</div>
+                        <div class="game-title" onclick="openProductModal('${safeProductId}')">${safeProductTitle}</div>
                         ${miniVariantsHtml}
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:auto;">
                             <div>
                                 ${oldPriceHtml}
                                 <span class="price">${formatPrice(p.price)}</span>
                             </div>
-                            <button onclick="openProductModal('${p.firestoreId}')" style="background:var(--burgundy-light); border:none; color:#fff; width:30px; height:30px; border-radius:50%; cursor:pointer;"><i class="fa-solid fa-cart-plus"></i></button>
+                            <button onclick="openProductModal('${safeProductId}')" style="background:var(--burgundy-light); border:none; color:#fff; width:30px; height:30px; border-radius:50%; cursor:pointer;"><i class="fa-solid fa-cart-plus"></i></button>
                         </div>
                     </div>
                 `;
