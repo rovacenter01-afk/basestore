@@ -55,6 +55,17 @@
         window.where = where;
         window.onSnapshot = onSnapshot;
         window.runTransaction = runTransaction;
+        window.loadSharedUsdRate = async () => {
+            const snap = await getDoc(doc(db, "settings", "currency"));
+            return snap.exists() && Number(snap.data().usdRate) > 0 ? Number(snap.data().usdRate) : 1500;
+        };
+        window.saveSharedUsdRate = async (rate) => {
+            if (!auth.currentUser || auth.currentUser.uid !== ADMIN_UID) throw new Error("Admin permission required");
+            await setDoc(doc(db, "settings", "currency"), {
+                usdRate: Number(rate),
+                updatedAt: new Date().toISOString()
+            }, { merge: true });
+        };
 
         window.addEventListener('DOMContentLoaded', async () => {
             initFirebaseRealtime();
@@ -495,7 +506,7 @@
         <div style="padding:1rem; background:rgba(0,0,0,0.5); border-top:1px solid var(--border-color);">
             
             <div style="background: rgba(37,211,102,0.15); border: 1px solid var(--whatsapp-green); padding: 0.8rem; border-radius: 12px; margin-bottom: 1rem; text-align: center;">
-                <span style="font-size:0.8rem; color:#aaa; display:block;">ژمارەی حیسابی FIB / FastPay / QiCard:</span>
+                <span style="font-size:0.8rem; color:#aaa; display:block;">ژمارەی حیسابی FIB / FastPay:</span>
                 <strong style="font-size:1.2rem; color:#4ade80; letter-spacing:1px;">07507285645</strong>
             </div>
 
@@ -515,7 +526,6 @@
                 <select id="paymentMethodSelect">
                     <option value="FIB">FIB (ئێف ئای بی)</option>
                     <option value="FastPay">FastPay (فاست پەی)</option>
-                    <option value="Qi Card">Qi Card (کیو ئای کارت)</option>
                 </select>
             </div>
 
@@ -633,6 +643,21 @@
                 <button class="admin-tab-btn" onclick="switchAdminTab('reviewsTab', event)">هەڵسەنگاندنەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('statsTab', event)">ئامارەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('spotlightTab', event)">سلایدەر</button>
+                <button class="admin-tab-btn" onclick="switchAdminTab('currencyTab', event)">نرخی دۆلار</button>
+            </div>
+
+            <!-- Shared USD exchange rate settings -->
+            <div id="currencyTab" style="display:none;">
+                <div style="background:rgba(16,185,129,.1);border:1px solid #10b981;border-radius:12px;padding:14px;margin-bottom:14px;">
+                    <h4 style="color:#4ade80;margin-bottom:8px;">ڕێکخستنی نرخی دۆلار بۆ هەموو کڕیاران</h4>
+                    <p style="font-size:.82rem;color:#ddd;line-height:1.8;">نرخەکە بە دینار بۆ ١ دۆلار بنووسە. بۆ نموونە ١٥٠٠ = هەر ١ دۆلار ١٥٠٠ دینار. ئەم نرخە لە Firestore پاشەکەوت دەکرێت و بۆ هەموو سەردانیکەران بەکاردێت.</p>
+                </div>
+                <div class="admin-form-group">
+                    <label for="adminUsdRate">نرخی ١ دۆلار بە دیناری عێراقی (IQD)</label>
+                    <input type="number" id="adminUsdRate" min="1" step="1" placeholder="1500">
+                </div>
+                <button type="button" onclick="saveAdminUsdRate()" class="admin-submit-btn">پاشەکەوتکردنی نرخی دۆلار</button>
+                <p id="usdRateStatus" style="font-size:.8rem;color:#aaa;margin-top:10px;"></p>
             </div>
 
             <!-- Products Tab -->
@@ -849,6 +874,51 @@
         let orders = [];
         let reviews = [];
         let currentFilter = 'all';
+
+        async function loadSharedUsdRate() {
+            try {
+                if (typeof window.loadSharedUsdRate === 'function') {
+                    const rate = await window.loadSharedUsdRate();
+                    if (Number(rate) > 0) usdRate = Number(rate);
+                }
+            } catch (error) {
+                console.warn('Could not load shared USD rate; using fallback rate:', error);
+            }
+            const field = document.getElementById('adminUsdRate');
+            if (field) field.value = String(usdRate);
+            renderProducts();
+            updateCart();
+            renderWishlist();
+        }
+
+        async function saveAdminUsdRate() {
+            const field = document.getElementById('adminUsdRate');
+            const status = document.getElementById('usdRateStatus');
+            const rate = Number(field && field.value);
+            if (!Number.isFinite(rate) || rate < 1 || rate > 10000000) {
+                if (status) status.textContent = 'تکایە نرخێکی دروست بنووسە.';
+                return;
+            }
+            try {
+                if (typeof window.saveSharedUsdRate !== 'function') throw new Error('Firebase currency helper not ready');
+                await window.saveSharedUsdRate(rate);
+                usdRate = rate;
+                if (status) status.textContent = `نرخی نوێ پاشەکەوت کرا: 1 USD = ${rate.toLocaleString()} IQD`;
+                showTopLeftToast('نرخی دۆلار بۆ هەموو کڕیاران نوێ کرایەوە ✓');
+                renderProducts();
+                updateCart();
+                renderWishlist();
+            } catch (error) {
+                console.error('Save USD rate failed:', error);
+                if (status) status.textContent = 'پاشەکەوت نەکرا. دڵنیابە لە چوونەژوورەوەی ئەدمین و Firestore Rules.';
+                showTopLeftToast('پاشەکەوتکردنی نرخی دۆلار سەرکەوتوو نەبوو', 'error');
+            }
+        }
+        window.saveAdminUsdRate = saveAdminUsdRate;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSharedUsdRate();
+        });
 
         function showTopLeftToast(message, type = 'success') {
             const container = document.getElementById('topToastContainer');
@@ -1395,6 +1465,8 @@
 
         function changeCurrency(val) {
             currentCurrency = val;
+            const selector = document.getElementById('currencySelect');
+            if (selector) selector.value = val;
             document.getElementById('currentCurrencyLabel').textContent = val;
             renderProducts();
             updateCart();
