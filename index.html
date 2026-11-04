@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, onSnapshot, setDoc, getDoc, increment, query, where, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, browserLocalPersistence, setPersistence } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, browserLocalPersistence, setPersistence, signInAnonymously, updateProfile } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyACK6eIhr21aKJvUVa2fz75f2fpgq9i7KQ",
@@ -39,6 +39,8 @@
         window.signInWithEmailAndPassword = signInWithEmailAndPassword;
         window.createUserWithEmailAndPassword = createUserWithEmailAndPassword;
         window.signOut = signOut;
+        window.signInAnonymously = signInAnonymously;
+        window.updateFirebaseProfile = updateProfile;
         window.googleSignIn = async () => { await authPersistenceReady; return signInWithPopup(auth, new GoogleAuthProvider()); };
         window.collection = collection;
         window.addDoc = addDoc;
@@ -77,8 +79,9 @@
                     }
                     updateAuthUI();
                 } else if (user) {
-                    const provider = isGoogle ? 'google' : 'email';
-                    currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاؤنتەکەم', avatar: user.photoURL || '', provider };
+                    const provider = user.isAnonymous ? 'guest' : (isGoogle ? 'google' : 'email');
+                    let savedName = ''; try { savedName = localStorage.getItem('baseStoreCustomerName') || ''; } catch (_) {}
+                    currentUser = { uid: user.uid, email: user.email || '', name: savedName || user.displayName || user.email || (user.isAnonymous ? 'میوان' : 'ئەکاؤنتەکەم'), avatar: user.photoURL || '', provider };
                     try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     updateAuthUI();
                     loadUserWishlistFromCloud();
@@ -547,6 +550,7 @@
                 <div id="authProfileName" style="font-size:1.08rem;font-weight:900;color:#fff;overflow-wrap:anywhere;">ئەکاؤنتەکەم</div>
                 <div id="authProfileEmail" style="font-size:.78rem;color:#d1aab3;margin-top:4px;overflow-wrap:anywhere;"></div>
                 <div id="authProfileProvider" style="display:inline-flex;align-items:center;gap:6px;margin-top:11px;padding:5px 12px;border-radius:30px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);font-size:.75rem;color:#fff;"></div>
+                <button onclick="editCustomerDisplayName()" style="display:block;width:100%;margin-top:10px;background:#3b1520;color:#fff;border:1px solid #b0002d;padding:9px;border-radius:10px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-pen"></i> گۆڕینی ناوی پیشاندان</button>
                 <div style="margin-top:16px;text-align:right;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;">
                     <div style="font-weight:900;color:#fff;margin-bottom:9px;"><i class="fa-solid fa-box-open"></i> مێژووی داواکارییەکانم</div>
                     <div id="customerOrderHistory" style="font-size:.8rem;color:#ddd;">بۆ بینینی داواکارییەکان چاوەڕێ بکە...</div>
@@ -880,14 +884,14 @@
             const providerEl = document.getElementById('authProfileProvider');
             if (currentUser) {
                 const displayName = currentUser.name || currentUser.email || 'ئەکاؤنتەکەم';
-                const providerName = currentUser.provider === 'discord' ? 'Discord' : currentUser.provider === 'google' ? 'Google' : 'Email';
+                const providerName = currentUser.provider === 'discord' ? 'Discord' : currentUser.provider === 'google' ? 'Google' : currentUser.provider === 'guest' ? 'میوان · بەبێ دروستکردنی هەژمار' : 'Email';
                 if (btnText) btnText.textContent = displayName;
                 if (authOptions) authOptions.style.display = 'none';
                 if (profileCard) profileCard.style.display = 'block';
                 if (nameEl) nameEl.textContent = displayName;
                 if (emailEl) emailEl.textContent = currentUser.email || '';
                 if (providerEl) {
-                    const iconClass = currentUser.provider === 'discord' ? 'fa-brands fa-discord' : currentUser.provider === 'google' ? 'fa-brands fa-google' : 'fa-solid fa-envelope';
+                    const iconClass = currentUser.provider === 'discord' ? 'fa-brands fa-discord' : currentUser.provider === 'google' ? 'fa-brands fa-google' : currentUser.provider === 'guest' ? 'fa-solid fa-user' : 'fa-solid fa-envelope';
                     const iconColor = currentUser.provider === 'discord' ? '#8794ff' : currentUser.provider === 'google' ? '#f87171' : '#4ade80';
                     providerEl.innerHTML = `<i class="${iconClass}" style="color:${iconColor}"></i><span>${providerName} · ئەکاؤنت چالاکە</span>`;
                 }
@@ -908,12 +912,31 @@
             }
         }
 
+        async function editCustomerDisplayName() {
+            const oldName = (currentUser && currentUser.name) || '';
+            const nextName = prompt('ناوی نوێی خۆت بنووسە:', oldName);
+            if (nextName === null) return;
+            const cleanName = nextName.trim();
+            if (!cleanName) { alert('تکایە ناوێکی دروست بنووسە.'); return; }
+            try {
+                localStorage.setItem('baseStoreCustomerName', cleanName);
+                if (window.auth && window.auth.currentUser) {
+                    await window.updateFirebaseProfile(window.auth.currentUser, { displayName: cleanName });
+                }
+                if (currentUser) currentUser.name = cleanName;
+                try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
+                updateAuthUI();
+                showTopLeftToast('ناوەکەت نوێکرایەوە.');
+            } catch (error) { alert('نەتوانرا ناوەکە نوێ بکرێتەوە: ' + error.message); }
+        }
+        window.editCustomerDisplayName = editCustomerDisplayName;
+
         async function loadCustomerOrderHistory() {
             const target = document.getElementById('customerOrderHistory');
             if (!target) return;
             const firebaseUser = window.auth && window.auth.currentUser;
             if (!firebaseUser) {
-                target.innerHTML = '<span style="color:#fbbf24">بۆ پاراستنی داواکارییەکان، پێویستە بە Google یان ئیمەیڵی Firebase بچیتە ژوورەوە. هەژماری Discord بە تەنها هێشتا بە Firebase Auth نەبەستراوەتەوە.</span>';
+                target.innerHTML = '<span style="color:#fbbf24">کاتێک یەکەم داواکارییەکەت بنێریت، مێژووی داواکارییەکانت لێرە پیشان دەدرێت.</span>';
                 return;
             }
             target.textContent = 'بارکردنی داواکارییەکان...';
@@ -924,12 +947,15 @@
                     target.textContent = 'هێشتا هیچ داواکارییەکت نییە.';
                     return;
                 }
+                const esc = value => String(value ?? '—').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
                 const rows = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
                 target.innerHTML = rows.map(o => {
-                    const date = o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '—';
+                    const date = o.createdAt ? new Date(o.createdAt).toLocaleString('en-GB') : '—';
                     const status = o.status || 'Pending';
                     const count = Array.isArray(o.items) ? o.items.length : 0;
-                    return `<div style="padding:9px 0;border-top:1px solid rgba(255,255,255,.1);"><div style="display:flex;justify-content:space-between;gap:8px;"><b>داواکاری #${String(o.id).slice(-6)}</b><span style="color:#fbbf24">${status}</span></div><div style="color:#aaa;margin-top:4px;">${date} · ${count} کاڵا</div></div>`;
+                    const itemLines = (Array.isArray(o.items) ? o.items : []).map((item,i) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid rgba(255,255,255,.07);"><span>${i+1}. ${esc(item.title || item.name || 'کاڵا')}</span><b>${esc(item.price || 0)} IQD</b></div>`).join('');
+                    const total = Number(o.totalAmount || 0).toLocaleString();
+                    return `<div style="padding:11px;margin:9px 0;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:rgba(0,0,0,.2);"><div style="display:flex;justify-content:space-between;gap:8px;"><b>داواکاری #${esc(String(o.id).slice(-6))}</b><span style="color:#fbbf24">${esc(status)}</span></div><div style="color:#aaa;margin:5px 0;">${esc(date)} · ${count} کاڵا</div><div style="color:#ddd;margin-bottom:6px;">ناوی کڕیار: <b>${esc(o.name || currentUser?.name || '—')}</b></div>${itemLines}<div style="text-align:left;color:#4ade80;font-weight:900;margin-top:8px;">کۆی گشتی: ${total} IQD</div></div>`;
                 }).join('');
             } catch (error) {
                 console.error('Customer order history:', error);
@@ -2062,14 +2088,16 @@
                 return;
             }
 
-            const firebaseUser = window.auth && window.auth.currentUser;
-            if (!firebaseUser) {
-                alert(currentUser && currentUser.provider === 'discord'
-                    ? 'بۆ ناردنی داواکاری بە شێوەی پارێزراو، تکایە بە Google یان ئیمەیڵی Firebase بچۆ ژوورەوە. هەژماری Discord هێشتا بە Firebase Auth نەبەستراوەتەوە.'
-                    : 'تکایە پێش ناردنی داواکاری بە Google یان ئیمەیڵ بچۆ ژوورەوە.');
-                return;
-            }
+            let firebaseUser = window.auth && window.auth.currentUser;
             try {
+                // Guest checkout: create an anonymous Firebase identity silently; customers do not need to know Firebase or register.
+                if (!firebaseUser) {
+                    const guestCredential = await window.signInAnonymously(window.auth);
+                    firebaseUser = guestCredential.user;
+                    currentUser = { uid: firebaseUser.uid, email: '', name: (localStorage.getItem('baseStoreCustomerName') || name || 'میوان'), avatar: '', provider: 'guest' };
+                    try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
+                    updateAuthUI();
+                }
                 await window.addDoc(window.collection(window.db, "orders"), {
                     userId: firebaseUser.uid,
                     name, phone, paymentMethod, playerGameId, items: cart,
