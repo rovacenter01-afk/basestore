@@ -639,6 +639,7 @@
                 <button class="admin-tab-btn active" onclick="switchAdminTab('productsTab', event)">بەرهەمەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('categoriesTab', event)">بەشەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('couponsTab', event)">کۆدی داشکاندن</button>
+                <button class="admin-tab-btn" onclick="switchAdminTab('offersTab', event)">ئۆفەری کاتی</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('ordersTab', event)">داواکارییەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('reviewsTab', event)">هەڵسەنگاندنەکان</button>
                 <button class="admin-tab-btn" onclick="switchAdminTab('statsTab', event)">ئامارەکان</button>
@@ -769,11 +770,23 @@
                     <input type="text" id="couponCodeInput" placeholder="BASE10">
                 </div>
                 <div class="admin-form-group">
-                    <label>ڕێژەی داشکاندن بە سەدی (%)</label>
-                    <input type="number" id="couponPercentInput" placeholder="10">
+                    <label>ڕێژەی داشکاندن بە سەدی (%) — لە ١ تا ٩٠</label>
+                    <input type="number" id="couponPercentInput" placeholder="10" min="1" max="90" step="1">
                 </div>
                 <button onclick="saveCoupon()" class="admin-submit-btn">زیادکردنی کۆد</button>
                 <div id="adminCouponsList" style="margin-top:1rem;"></div>
+            </div>
+
+            <!-- Timed Special Offers -->
+            <div id="offersTab" style="display:none;">
+                <div class="admin-form-group"><label>ناوی ئۆفەر</label><input type="text" id="offerTitleInput" placeholder="ئۆفەری تایبەتی کۆتایی هەفتە"></div>
+                <div class="admin-form-group"><label>ڕوونکردنەوە (ئارەزوومەندانە)</label><input type="text" id="offerDescriptionInput" placeholder="داشکاندنی تایبەت بۆ ماوەیەکی سنووردار"></div>
+                <div class="admin-form-group"><label>ڕێژەی داشکاندن (%) — لە ١ تا ٩٠</label><input type="number" id="offerPercentInput" min="1" max="90" step="1" placeholder="20"></div>
+                <div class="admin-form-group"><label>کاتی دەستپێک</label><input type="datetime-local" id="offerStartInput"></div>
+                <div class="admin-form-group"><label>کاتی کۆتایی</label><input type="datetime-local" id="offerEndInput"></div>
+                <button onclick="saveTimedOffer()" class="admin-submit-btn">زیادکردنی ئۆفەر</button>
+                <p style="color:#aaa;font-size:.78rem;margin-top:8px;">ئۆفەرەکە لە کاتی دەستپێک خۆکارانە چالاک دەبێت و لە کاتی کۆتایی وەستێت. ئۆفەر و کۆدی داشکاندن پێکەوە کۆ نابنەوە؛ ئەوەی داشکاندنی زیاتر بدات جێبەجێ دەبێت.</p>
+                <div id="adminOffersList" style="margin-top:1rem;"></div>
             </div>
 
             <!-- Orders Tab -->
@@ -848,7 +861,10 @@
         let secretClickCount = 0;
         let selectedVariantPrice = 0;
         let currentSelectedVariantLabel = '';
-        let discountMultiplier = 1;
+        let discountMultiplier = 1; // Coupon discount multiplier
+        let timedOffers = [];
+        let activeTimedOffer = null;
+        let offerCountdownInterval = null;
         let lastOrderCount = -1;
 
         let currentUser = null;
@@ -1308,6 +1324,20 @@
                 renderSlides();
                 renderAdminSlidesList();
             });
+
+            // Public read-only data: customers need to see valid coupon codes and timed offers.
+            window.onSnapshot(window.collection(window.db, "coupons"), (snapshot) => {
+                coupons = [];
+                snapshot.forEach(docSnap => coupons.push({ firestoreId: docSnap.id, ...docSnap.data() }));
+                renderAdminCouponsList();
+            }, (error) => console.error("Coupons public listener:", error));
+
+            window.onSnapshot(window.collection(window.db, "offers"), (snapshot) => {
+                timedOffers = [];
+                snapshot.forEach(docSnap => timedOffers.push({ firestoreId: docSnap.id, ...docSnap.data() }));
+                refreshActiveTimedOffer();
+                renderAdminOffersList();
+            }, (error) => console.error("Timed offers listener:", error));
         }
 
         function initAdminRealtime() {
@@ -1316,14 +1346,6 @@
 
             adminUnsubscribers.forEach(unsubscribe => unsubscribe());
             adminUnsubscribers = [];
-
-            adminUnsubscribers.push(
-                window.onSnapshot(window.collection(window.db, "coupons"), (snapshot) => {
-                    coupons = [];
-                    snapshot.forEach(docSnap => coupons.push({ firestoreId: docSnap.id, ...docSnap.data() }));
-                    renderAdminCouponsList();
-                }, (error) => console.error("Admin coupons listener:", error))
-            );
 
             adminUnsubscribers.push(
                 window.onSnapshot(window.collection(window.db, "orders"), (snapshot) => {
@@ -1456,9 +1478,53 @@
 
         function resetAutoSlide() { startAutoSlide(); }
 
+        function getEffectiveDiscountMultiplier() {
+            const coupon = Number(discountMultiplier) || 1;
+            const offer = activeTimedOffer ? (1 - Number(activeTimedOffer.percent) / 100) : 1;
+            return Math.min(coupon, offer); // Never stack discounts; apply the larger one only.
+        }
+
+        function refreshActiveTimedOffer() {
+            const now = Date.now();
+            activeTimedOffer = timedOffers
+                .filter(o => o.active !== false && Number(o.percent) >= 1 && Number(o.percent) <= 90 &&
+                    Number.isFinite(Date.parse(o.startsAt)) && Number.isFinite(Date.parse(o.endsAt)) &&
+                    Date.parse(o.startsAt) <= now && Date.parse(o.endsAt) > now)
+                .sort((a, b) => Number(b.percent) - Number(a.percent))[0] || null;
+            renderTimedOfferBanner();
+            if (offerCountdownInterval) clearInterval(offerCountdownInterval);
+            if (activeTimedOffer) offerCountdownInterval = setInterval(() => {
+                if (!activeTimedOffer || Date.parse(activeTimedOffer.endsAt) <= Date.now()) {
+                    refreshActiveTimedOffer();
+                    renderProducts(); updateCart();
+                } else renderTimedOfferBanner();
+            }, 1000);
+            renderProducts();
+            updateCart();
+        }
+
+        function renderTimedOfferBanner() {
+            let banner = document.getElementById('timedOfferBanner');
+            if (!activeTimedOffer) { if (banner) banner.remove(); return; }
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'timedOfferBanner';
+                banner.style.cssText = 'margin:12px auto;padding:12px 16px;max-width:1100px;border:1px solid #f59e0b;border-radius:14px;background:linear-gradient(110deg,rgba(120,53,15,.92),rgba(69,10,10,.95));color:#fff;text-align:center;box-shadow:0 8px 25px rgba(0,0,0,.25);';
+                const header = document.querySelector('header');
+                if (header) header.insertAdjacentElement('afterend', banner);
+                else document.body.prepend(banner);
+            }
+            const remaining = Math.max(0, Date.parse(activeTimedOffer.endsAt) - Date.now());
+            const hours = Math.floor(remaining / 3600000);
+            const minutes = Math.floor((remaining % 3600000) / 60000);
+            const seconds = Math.floor((remaining % 60000) / 1000);
+            const safe = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            banner.innerHTML = `<div style="font-weight:900;font-size:1.05rem;">⚡ ${safe(activeTimedOffer.title)} — داشکاندنی ${Number(activeTimedOffer.percent)}٪</div><div style="font-size:.85rem;margin-top:4px;">${safe(activeTimedOffer.description)}</div><div style="font-weight:900;color:#fde68a;margin-top:6px;">کۆتایی ئۆفەر: ${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}</div>`;
+        }
+
         function formatPrice(iqdPrice) {
             if(!iqdPrice) return '';
-            let finalPrice = iqdPrice * discountMultiplier;
+            let finalPrice = iqdPrice * getEffectiveDiscountMultiplier();
             if (currentCurrency === 'USD') return '$' + (finalPrice / usdRate).toFixed(2);
             return Math.round(finalPrice).toLocaleString() + ' IQD';
         }
@@ -1477,20 +1543,16 @@
         function applyPromoCode() {
             const code = document.getElementById('promoCodeInput').value.trim().toUpperCase();
             const msgEl = document.getElementById('promoMessage');
-            
-            const found = coupons.find(c => c.code === code);
-            if (found) {
-                discountMultiplier = (100 - found.percent) / 100;
+            const found = coupons.find(c => c.active !== false && String(c.code || '').trim().toUpperCase() === code);
+            if (!code) { discountMultiplier = 1; msgEl.style.color = '#fbbf24'; msgEl.textContent = 'تکایە کۆدی داشکاندن بنووسە.'; updateCart(); return; }
+            if (found && Number.isFinite(Number(found.percent)) && Number(found.percent) >= 1 && Number(found.percent) <= 90) {
+                discountMultiplier = (100 - Number(found.percent)) / 100;
                 msgEl.style.color = '#4ade80';
-                msgEl.textContent = `✓ کۆدی داشکاندن (${found.percent}%) بەکار هات!`;
-            } else if (code === 'BASE10') {
-                discountMultiplier = 0.9;
-                msgEl.style.color = '#4ade80';
-                msgEl.textContent = '✓ کۆدی داشکاندن (10%) بەکار هات!';
+                msgEl.textContent = `✓ کۆدی داشکاندن (${Number(found.percent)}٪) بەکار هات.`;
             } else {
                 discountMultiplier = 1;
                 msgEl.style.color = '#ef4444';
-                msgEl.textContent = '✕ کۆدی داشکاندن هەڵەیە!';
+                msgEl.textContent = '✕ ئەم کۆدە نەناسراوە یان بەسەرچووە.';
             }
             updateCart();
         }
@@ -1861,7 +1923,7 @@
 
             let html = ''; let total = 0;
             cart.forEach((item, index) => {
-                let itemFinalPrice = item.price * discountMultiplier;
+                let itemFinalPrice = item.price * getEffectiveDiscountMultiplier();
                 total += itemFinalPrice;
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem; background:rgba(255,255,255,0.03); padding:8px; border-radius:8px;">
@@ -1925,7 +1987,7 @@
         }
 
         function switchAdminTab(tab, e) {
-            ['productsTab', 'categoriesTab', 'couponsTab', 'ordersTab', 'reviewsTab', 'statsTab', 'spotlightTab'].forEach(t => document.getElementById(t).style.display = 'none');
+            ['productsTab', 'categoriesTab', 'couponsTab', 'offersTab', 'ordersTab', 'reviewsTab', 'statsTab', 'spotlightTab'].forEach(t => document.getElementById(t).style.display = 'none');
             document.querySelectorAll('.admin-tab-btn').forEach(b => b.classList.remove('active'));
             document.getElementById(tab).style.display = 'block';
             e.target.classList.add('active');
@@ -2059,17 +2121,25 @@
         }
 
         async function saveCoupon() {
-            const code = document.getElementById('couponCodeInput').value.trim().toUpperCase();
-            const percent = parseFloat(document.getElementById('couponPercentInput').value);
-            if(!code || isNaN(percent)) return alert('تکایە کۆد و ڕێژەی داشکاندن بە دروستی پڕبکەرەوە');
-            await window.addDoc(window.collection(window.db, "coupons"), { code, percent });
-            document.getElementById('couponCodeInput').value = '';
-            document.getElementById('couponPercentInput').value = '';
-            showTopLeftToast('کۆدی داشکاندن زیادکرا!');
+            try {
+                if (!window.auth.currentUser || window.auth.currentUser.uid !== window.ADMIN_UID) throw new Error('تەنها ئەدمین دەتوانێت کۆد زیاد بکات.');
+                const code = document.getElementById('couponCodeInput').value.trim().toUpperCase();
+                const percent = Number(document.getElementById('couponPercentInput').value);
+                if (!/^[A-Z0-9_-]{3,24}$/.test(code)) throw new Error('کۆد تەنها پیت و ژمارە و - یان _ بێت و ٣ تا ٢٤ نووسە بێت.');
+                if (!Number.isInteger(percent) || percent < 1 || percent > 90) throw new Error('ڕێژەی داشکاندن دەبێت لە ١ تا ٩٠٪ بێت.');
+                if (coupons.some(c => String(c.code || '').toUpperCase() === code)) throw new Error('ئەم کۆدە پێشتر هەیە.');
+                await window.addDoc(window.collection(window.db, 'coupons'), { code, percent, active: true, createdAt: new Date().toISOString() });
+                document.getElementById('couponCodeInput').value = '';
+                document.getElementById('couponPercentInput').value = '';
+                showTopLeftToast('کۆدی داشکاندن بە سەرکەوتوویی زیادکرا!');
+            } catch (error) { alert('نەتوانرا کۆد زیاد بکرێت: ' + error.message); }
         }
 
         async function deleteCoupon(id) {
-            await window.deleteDoc(window.doc(window.db, "coupons", id));
+            if (!window.auth.currentUser || window.auth.currentUser.uid !== window.ADMIN_UID) return alert('دەسەڵاتی ئەدمین پێویستە.');
+            if (!confirm('دڵنیایت لە سڕینەوەی ئەم کۆدە؟')) return;
+            await window.deleteDoc(window.doc(window.db, 'coupons', id));
+            if (document.getElementById('promoCodeInput').value.trim().toUpperCase() === String(coupons.find(c => c.firestoreId === id)?.code || '').toUpperCase()) { discountMultiplier = 1; updateCart(); }
         }
 
         function renderAdminCouponsList() {
@@ -2085,6 +2155,43 @@
                 `;
             });
             list.innerHTML = html;
+        }
+
+        async function saveTimedOffer() {
+            try {
+                if (!window.auth.currentUser || window.auth.currentUser.uid !== window.ADMIN_UID) throw new Error('تەنها ئەدمین دەتوانێت ئۆفەر زیاد بکات.');
+                const title = document.getElementById('offerTitleInput').value.trim();
+                const description = document.getElementById('offerDescriptionInput').value.trim();
+                const percent = Number(document.getElementById('offerPercentInput').value);
+                const startRaw = document.getElementById('offerStartInput').value;
+                const endRaw = document.getElementById('offerEndInput').value;
+                const start = new Date(startRaw); const end = new Date(endRaw);
+                if (!title) throw new Error('ناوی ئۆفەر بنووسە.');
+                if (!Number.isInteger(percent) || percent < 1 || percent > 90) throw new Error('ڕێژەی داشکاندن دەبێت لە ١ تا ٩٠٪ بێت.');
+                if (!startRaw || !endRaw || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) throw new Error('کاتی کۆتایی دەبێت دوای کاتی دەستپێک بێت.');
+                if (end.getTime() <= Date.now()) throw new Error('کاتی کۆتایی دەبێت لە ئێستاوە دواتر بێت.');
+                await window.addDoc(window.collection(window.db, 'offers'), { title, description, percent, startsAt: start.toISOString(), endsAt: end.toISOString(), active: true, createdAt: new Date().toISOString() });
+                ['offerTitleInput','offerDescriptionInput','offerPercentInput','offerStartInput','offerEndInput'].forEach(id => document.getElementById(id).value = '');
+                showTopLeftToast('ئۆفەری کاتی زیادکرا!');
+            } catch (error) { alert('نەتوانرا ئۆفەر زیاد بکرێت: ' + error.message); }
+        }
+
+        async function deleteTimedOffer(id) {
+            if (!window.auth.currentUser || window.auth.currentUser.uid !== window.ADMIN_UID) return alert('دەسەڵاتی ئەدمین پێویستە.');
+            if (!confirm('دڵنیایت لە سڕینەوەی ئەم ئۆفەرە؟')) return;
+            await window.deleteDoc(window.doc(window.db, 'offers', id));
+        }
+
+        function renderAdminOffersList() {
+            const list = document.getElementById('adminOffersList');
+            if (!list) return;
+            if (!timedOffers.length) { list.innerHTML = '<p style="color:#aaa;text-align:center;padding:12px;">هێشتا هیچ ئۆفەرێک زیاد نەکراوە.</p>'; return; }
+            const safe = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            list.innerHTML = timedOffers.slice().sort((a,b) => Date.parse(a.startsAt || 0) - Date.parse(b.startsAt || 0)).map(o => {
+                const now = Date.now(); const start = Date.parse(o.startsAt); const end = Date.parse(o.endsAt);
+                const status = now < start ? '⏳ چاوەڕوانی دەستپێک' : (now < end ? '🟢 چالاکە' : '⚫ کۆتایی هاتووە');
+                return `<div style="background:rgba(0,0,0,.4);border:1px solid var(--border-color);padding:10px;border-radius:9px;margin-bottom:8px;"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><strong>${safe(o.title)} — ${Number(o.percent)}٪</strong><button onclick="deleteTimedOffer('${safe(o.firestoreId)}')" style="background:#ef4444;border:0;color:white;padding:5px 9px;border-radius:6px;">سڕینەوە</button></div><small style="color:#aaa;">${safe(o.description)}<br>${start ? new Date(start).toLocaleString() : '—'} ← ${end ? new Date(end).toLocaleString() : '—'}<br>${status}</small></div>`;
+            }).join('');
         }
 
         function renderAdminOrdersList() {
@@ -2236,8 +2343,10 @@
                 await window.addDoc(window.collection(window.db, "orders"), {
                     userId: firebaseUser.uid,
                     name, phone, paymentMethod, playerGameId, items: cart,
-                    discountMultiplier,
-                    totalAmount: cart.reduce((sum, item) => sum + (Number(item.price) || 0) * discountMultiplier, 0),
+                    discountMultiplier: getEffectiveDiscountMultiplier(),
+                    appliedOfferId: activeTimedOffer ? activeTimedOffer.firestoreId : null,
+                    appliedOfferTitle: activeTimedOffer ? activeTimedOffer.title : null,
+                    totalAmount: cart.reduce((sum, item) => sum + (Number(item.price) || 0) * getEffectiveDiscountMultiplier(), 0),
                     status: 'Pending', createdAt: new Date().toISOString()
                 });
             } catch(e) {
@@ -2255,7 +2364,7 @@
 
             let total = 0;
             cart.forEach(item => {
-                let finalItemPrice = item.price * discountMultiplier;
+                let finalItemPrice = item.price * getEffectiveDiscountMultiplier();
                 total += finalItemPrice;
                 msg += `- ${encodeURIComponent(item.title)} (${formatPrice(item.price)})%0A`;
             });
