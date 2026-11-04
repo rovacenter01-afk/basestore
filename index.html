@@ -951,7 +951,8 @@
                 const rows = snap.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
                 target.innerHTML = rows.map(o => {
                     const date = o.createdAt ? new Date(o.createdAt).toLocaleString('en-GB') : '—';
-                    const status = o.status || 'Pending';
+                    const rawStatus = o.status || 'Pending';
+                    const status = ({'Pending':'چاوەڕوان','Payment Verified':'ئامادە','Completed':'گەیەنراو','Ready':'ئامادە','Delivered':'گەیەنراو'})[rawStatus] || rawStatus;
                     const count = Array.isArray(o.items) ? o.items.length : 0;
                     const itemLines = (Array.isArray(o.items) ? o.items : []).map((item,i) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid rgba(255,255,255,.07);"><span>${i+1}. ${esc(item.title || item.name || 'کاڵا')}</span><b>${esc(item.price || 0)} IQD</b></div>`).join('');
                     const total = Number(o.totalAmount || 0).toLocaleString();
@@ -1260,7 +1261,7 @@
         window.clearAdminRealtime = clearAdminRealtime;
 
         function updateStatsUI() {
-            const completed = orders.filter(o => o.status === 'Completed').length;
+            const completed = orders.filter(o => ['Completed','Delivered'].includes(o.status)).length;
             const compEl = document.getElementById('statCompletedOrders');
             if(compEl) compEl.textContent = completed;
 
@@ -1985,9 +1986,9 @@
                         <div style="margin-top:9px;display:flex;justify-content:space-between;align-items:center;gap:8px;">
                             <span style="font-size:0.8rem;color:#aaa;">دۆخ:</span>
                             <select onchange="updateOrderStatus('${safeText(o.firestoreId)}', this.value)" style="background:#222;color:#fff;border:1px solid #555;padding:5px 8px;border-radius:6px;font-size:.8rem;">
-                                <option value="Pending" ${o.status==='Pending'?'selected':''}>چاوەڕوانی پارەدان (Pending)</option>
-                                <option value="Payment Verified" ${o.status==='Payment Verified'?'selected':''}>پارە گەیشت (Verified)</option>
-                                <option value="Completed" ${o.status==='Completed'?'selected':''}>تەواوبوو و نێردرا (Completed)</option>
+                                <option value="Pending" ${(!o.status || o.status==='Pending')?'selected':''}>🟡 چاوەڕوان</option>
+                                <option value="Ready" ${['Ready','Payment Verified'].includes(o.status)?'selected':''}>🔵 ئامادە</option>
+                                <option value="Delivered" ${['Delivered','Completed'].includes(o.status)?'selected':''}>🟢 گەیەنراو</option>
                             </select>
                         </div>
                     </div>
@@ -2007,7 +2008,7 @@
                     const items = Array.isArray(orderData.items) ? orderData.items : [];
                     const counts = {};
                     items.forEach(item => { if (item.firestoreId) counts[item.firestoreId] = (counts[item.firestoreId] || 0) + 1; });
-                    const shouldAdjust = status === 'Completed' && !orderData.stockAdjusted;
+                    const shouldAdjust = ['Delivered','Completed'].includes(status) && !orderData.stockAdjusted;
                     const productRefs = shouldAdjust ? Object.keys(counts).map(pid => window.doc(window.db, 'products', pid)) : [];
                     const productSnaps = [];
                     for (const ref of productRefs) productSnaps.push(await tx.get(ref));
@@ -2144,14 +2145,14 @@
 
             let html = '';
             myOrders.forEach(o => {
-                let statusBadge = '<span style="color:#facc15;">🟡 چاوەڕوانی پارەدان (Pending)</span>';
-                if(o.status === 'Payment Verified') statusBadge = '<span style="color:#60a5fa;">🔵 پارە گەیشت (Verified)</span>';
-                if(o.status === 'Completed') statusBadge = '<span style="color:#4ade80;">🟢 تەواوبوو (Completed)</span>';
+                let statusBadge = '<span style="color:#facc15;">🟡 چاوەڕوان</span>';
+                if(['Ready','Payment Verified'].includes(o.status)) statusBadge = '<span style="color:#60a5fa;">🔵 ئامادە</span>';
+                if(['Delivered','Completed'].includes(o.status)) statusBadge = '<span style="color:#4ade80;">🟢 گەیەنراو</span>';
 
                 html += `
                     <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; margin-bottom:8px; border:1px solid var(--border-color);">
                         <p style="font-size:0.85rem; color:#fff;">قۆناغی داواکاری: ${statusBadge}</p>
-                        <p style="font-size:0.75rem; color:#aaa; margin-top:4px;">ڕێکەوت: ${new Date(o.createdAt).toLocaleDateString()}</p>
+                        <p style="font-size:0.75rem; color:#aaa; margin-top:4px;">ڕێکەوت و کات: ${o.createdAt ? new Date(o.createdAt).toLocaleString('en-GB') : '—'}</p>
                     </div>
                 `;
             });
