@@ -436,6 +436,19 @@
       }
     </style>
 
+
+    <style id="basestore-seven-games-per-row">
+      /* Desktop: show up to seven game cards in each row. Extra games continue on the next row. */
+      @media (min-width: 1100px) {
+        #gamesGrid, #subscriptionsGrid { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; gap: 12px !important; }
+      }
+      @media (min-width: 768px) and (max-width: 1099px) {
+        #gamesGrid, #subscriptionsGrid { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 12px !important; }
+      }
+      @media (max-width: 767px) {
+        #gamesGrid, #subscriptionsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      }
+    </style>
 </head>
 <body>
 
@@ -1762,40 +1775,10 @@
             });
         }
 
-        // Unlimited Multi-Source / Multi-Variant Fetcher (Supports 10+ sources per product)
+        // Kinguin integration is intentionally disabled until real Merchant API credentials
+        // and a secure backend endpoint are configured. Never generate or display fake prices.
         async function fetchKinguinProduct() {
-            const kId = document.getElementById('kinguinSearchId').value.trim();
-            const label = document.getElementById('variantLabelInput').value.trim() || 'Seller Variant';
-            if(!kId) return alert('تکایە ئایدی یان لینکی فرۆشیار بنووسە');
-
-            try {
-                // Simulated multi-source auto price fetching with 18% profit margin
-                const baseEUR = 5.00 + (Math.random() * 5); 
-                const baseCostIQD = Math.round(baseEUR * eurToIqdRate);
-                const finalPriceWith18Percent = Math.round(baseCostIQD * 1.18);
-
-                let existingVariants = document.getElementById('newVariants').value.trim();
-                let newVariantEntry = `${label}=${finalPriceWith18Percent}`;
-
-                if (existingVariants) {
-                    existingVariants += `, ${newVariantEntry}`;
-                } else {
-                    existingVariants = newVariantEntry;
-                }
-
-                document.getElementById('newVariants').value = existingVariants;
-                
-                // Automatically set as main price if it's the lowest or first
-                let allPrices = existingVariants.split(',').map(v => parseFloat(v.split('=')[1] || 0));
-                let minPrice = Math.min(...allPrices);
-                document.getElementById('newPrice').value = minPrice;
-
-                showTopLeftToast(`✓ سەرچاوەی نوێ زیادکرا (${label}: ${finalPriceWith18Percent} IQD)!`);
-                document.getElementById('kinguinSearchId').value = '';
-                document.getElementById('variantLabelInput').value = '';
-            } catch(e) {
-                alert('هەڵە لە ڕاکێشانی نرخەکە روویدا.');
-            }
+            alert('Kinguin API هێشتا نەبەستراوەتەوە. بۆ پاراستنی نرخەکان، هیچ نرخی ساختە زیاد ناکرێت. پێویستە Merchant API و Backend ئامادە بکرێن.');
         }
 
         function openProductModal(firestoreId) {
