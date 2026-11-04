@@ -69,7 +69,6 @@
 
         window.addEventListener('DOMContentLoaded', async () => {
             initFirebaseRealtime();
-            trackSiteVisit();
             // Do not attach the auth observer until Firebase has restored local persistence.
             await authPersistenceReady;
             onAuthStateChanged(auth, (user) => {
@@ -396,6 +395,18 @@
 
         .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 150; display: none; }
         .overlay.show { display: block; }
+    
+        /* Final responsive safeguards */
+        *, *::before, *::after { box-sizing: border-box; }
+        img, video, iframe { max-width: 100%; }
+        input, select, textarea, button { max-width: 100%; }
+        body { overflow-x: hidden; }
+        @media (max-width: 640px) {
+            .modal-content { width: min(96vw, 560px) !important; max-height: 90dvh; overflow-y: auto; }
+            .admin-panel, .admin-content, .modal-body { min-width: 0; max-width: 100%; }
+            table { display: block; max-width: 100%; overflow-x: auto; }
+            button, input, select, textarea { touch-action: manipulation; }
+        }
     </style>
 
     <style id="basestore-responsive-hardening">
@@ -431,7 +442,7 @@
     <!-- Top Left Toast Notification Container -->
     <div id="topToastContainer"></div>
 
-    <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" class="floating-whatsapp" title="پشتیوانی واتسئاپ">
+    <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" rel="noopener noreferrer" class="floating-whatsapp" title="پشتیوانی واتسئاپ">
         <i class="fa-brands fa-whatsapp"></i>
     </a>
 
@@ -491,10 +502,10 @@
             <button onclick="openModal('trackOrderModal')" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; background:rgba(59,130,246,0.15); border:1px solid #3b82f6; cursor:pointer;">
                 <i class="fa-solid fa-truck-fast"></i> بەدواداچوونی داواکاری (Track Order)
             </button>
-            <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(37,211,102,0.15); border:1px solid var(--whatsapp-green);">
+            <a href="https://wa.me/9647507285645" target="_blank" rel="noopener noreferrer" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(37,211,102,0.15); border:1px solid var(--whatsapp-green);">
                 <i class="fa-brands fa-whatsapp"></i> پەیوەندی واتس ئاپ
             </a>
-            <a href="https://discord.gg/Rp4qgeRGCt" target="_blank" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(88,101,242,0.15); border:1px solid var(--discord-blurple);">
+            <a href="https://discord.gg/Rp4qgeRGCt" target="_blank" rel="noopener noreferrer" rel="noopener noreferrer" style="padding:0.5rem 1rem; border-radius:12px; color:#fff; text-decoration:none; background:rgba(88,101,242,0.15); border:1px solid var(--discord-blurple);">
                 <i class="fa-brands fa-discord"></i> دیسکۆرد (Discord)
             </a>
         </div>
@@ -834,7 +845,7 @@
                 <h4 style="margin-bottom:1rem; color:#4ade80;"><i class="fa-solid fa-chart-line"></i> ئامار و زانیاری فرۆشگە</h4>
                 <div class="stat-card">
                     <div style="color:#aaa; font-size:0.9rem;">👁️ کۆی سەردانیکەرانی سایتەکە (Site Views)</div>
-                    <div class="stat-number" id="statTotalViews">0</div>
+                    <div class="stat-number" id="statTotalViews">—</div>
                 </div>
                 <div class="stat-card">
                     <div style="color:#aaa; font-size:0.9rem;">✅ داواکارییە سەرکەوتووە تەواوبووەکان (Completed Orders)</div>
@@ -985,10 +996,15 @@
             let iconColor = type === 'success' ? '#4ade80' : '#ff2a4b';
 
             toast.style.borderColor = borderColor;
-            toast.innerHTML = `
-                <i class="fa-solid ${iconClass}" style="color: ${iconColor}; font-size: 1.1rem;"></i>
-                <div style="flex:1; font-weight:bold;">${message}</div>
-            `;
+            const icon = document.createElement('i');
+            icon.className = `fa-solid ${iconClass}`;
+            icon.style.color = iconColor;
+            icon.style.fontSize = '1.1rem';
+            const text = document.createElement('div');
+            text.style.flex = '1';
+            text.style.fontWeight = 'bold';
+            text.textContent = String(message ?? '');
+            toast.append(icon, text);
 
             container.appendChild(toast);
             setTimeout(() => {
@@ -1312,17 +1328,6 @@
             } catch(e) {}
         }
 
-        async function trackSiteVisit() {
-            try {
-                const statRef = window.doc(window.db, "stats", "globalViews");
-                const snap = await window.getDoc(statRef);
-                if (snap.exists()) {
-                    await window.updateDoc(statRef, { count: window.increment(1) });
-                } else {
-                    await window.setDoc(statRef, { count: 1 });
-                }
-            } catch(e) {}
-        }
 
         function initFirebaseRealtime() {
             if (!window.db) return;
@@ -1408,15 +1413,7 @@
                 }, (error) => console.error("Admin reviews listener:", error))
             );
 
-            adminUnsubscribers.push(
-                window.onSnapshot(window.doc(window.db, "stats", "globalViews"), (docSnap) => {
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        const el = document.getElementById('statTotalViews');
-                        if (el) el.textContent = data.count || 0;
-                    }
-                }, (error) => console.error("Admin stats listener:", error))
-            );
+            // Global visit analytics are disabled: current Firestore rules intentionally deny /stats writes.
         }
 
         function clearAdminRealtime() {
@@ -1527,7 +1524,7 @@
         function refreshActiveTimedOffer() {
             const now = Date.now();
             activeTimedOffer = timedOffers
-                .filter(o => o.active !== false && Number(o.percent) >= 1 && Number(o.percent) <= 90 &&
+                .filter(o => o.active !== false && Number.isInteger(Number(o.percent)) && Number(o.percent) >= 1 && Number(o.percent) <= 90 &&
                     Number.isFinite(Date.parse(o.startsAt)) && Number.isFinite(Date.parse(o.endsAt)) &&
                     Date.parse(o.startsAt) <= now && Date.parse(o.endsAt) > now)
                 .sort((a, b) => Number(b.percent) - Number(a.percent))[0] || null;
@@ -1633,13 +1630,13 @@
             let browseHtml = '';
             let selectHtml = '';
 
-            categories.forEach(cat => {
+            categories.filter(cat => /^[a-z0-9_-]{1,32}$/.test(String(cat.id || ''))).forEach(cat => {
                 const isActive = currentFilter === cat.id ? 'active' : '';
                 const catColor = cat.color || ({playstation:'#3b82f6',xbox:'#22c55e',cards:'#facc15',mobile:'#cbd5e1',pc:'#ff2a4b',subscriptions:'#facc15',all:'#ffffff'}[cat.id] || '#a855f7');
                 const colorStyle = `--category-color:${catColor};`;
-                pillsHtml += `<button class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}" onclick="setQuickFilter('${cat.id}')">${cat.name}</button>`;
-                browseHtml += `<button onclick="setQuickFilter('${cat.id}'); closeSidebars();" class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}width:100%; margin-bottom:8px; justify-content: flex-start;">${cat.name}</button>`;
-                if(cat.id !== 'all') selectHtml += `<option value="${cat.id}">${cat.name}</option>`;
+                pillsHtml += `<button class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}" onclick="setQuickFilter('${cat.id}')">${bsEscapeHTML(cat.name)}</button>`;
+                browseHtml += `<button onclick="setQuickFilter('${cat.id}'); closeSidebars();" class="pill-btn pill-${cat.id} category-colored ${isActive}" style="${colorStyle}width:100%; margin-bottom:8px; justify-content: flex-start;">${bsEscapeHTML(cat.name)}</button>`;
+                if(cat.id !== 'all') selectHtml += `<option value="${bsEscapeHTML(cat.id)}">${bsEscapeHTML(cat.name)}</option>`;
             });
 
             pillsBar.innerHTML = pillsHtml;
@@ -1688,13 +1685,13 @@
             wishlist.forEach(id => {
                 const p = products.find(x => x.firestoreId === id);
                 if(p) {
-                    const mainImg = p.image ? p.image.split(',')[0].trim() : '';
+                    const mainImg = bsSafeMediaURL(p.image ? p.image.split(',')[0].trim() : '');
                     html += `
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem; background:rgba(255,255,255,0.03); padding:8px; border-radius:8px;">
                             <div style="display:flex; gap:10px; align-items:center; cursor:pointer;" onclick="openProductModal('${p.firestoreId}'); closeSidebars();">
-                                <img src="${mainImg}" style="width:45px; height:45px; object-fit:cover; border-radius:6px;">
+                                <img src="${mainImg}" loading="lazy" decoding="async" alt="" style="width:45px; height:45px; object-fit:cover; border-radius:6px;">
                                 <div>
-                                    <h4 style="font-size:0.85rem; color:#fff;">${p.title}</h4>
+                                    <h4 style="font-size:0.85rem; color:#fff;">${bsEscapeHTML(p.title)}</h4>
                                     <p style="color:#4ade80; font-size:0.8rem;">${formatPrice(p.price)}</p>
                                 </div>
                             </div>
@@ -1735,7 +1732,7 @@
                     miniVariantsHtml = `<div class="external-variants">`;
                     varList.slice(0, 3).forEach(v => {
                         const label = v.split('=')[0].trim();
-                        miniVariantsHtml += `<span class="mini-variant-chip">${label}</span>`;
+                        miniVariantsHtml += `<span class="mini-variant-chip">${bsEscapeHTML(label)}</span>`;
                     });
                     if(varList.length > 3) miniVariantsHtml += `<span class="mini-variant-chip">+${varList.length - 3} more</span>`;
                     miniVariantsHtml += `</div>`;
@@ -1808,9 +1805,9 @@
             currentSelectedVariantLabel = '';
 
             document.getElementById('modalTitle').textContent = p.title;
-            const images = p.image ? p.image.split(',').map(i => i.trim()) : [];
+            const images = p.image ? p.image.split(',').map(i => bsSafeMediaURL(i.trim())).filter(Boolean) : [];
 
-            let galleryHtml = images.length > 0 ? `<img id="mainGalleryImg" src="${images[0]}" style="width:100%; height:200px; object-fit:cover; border-radius:12px; margin-bottom:10px;">` : '';
+            let galleryHtml = images.length > 0 ? `<img id="mainGalleryImg" src="${images[0]}" loading="lazy" decoding="async" alt="${bsEscapeHTML(p.title)}" style="width:100%; height:200px; object-fit:cover; border-radius:12px; margin-bottom:10px;">` : '';
 
             let formatsHtml = '';
             if (p.variants) {
@@ -1819,6 +1816,7 @@
                 varList.forEach((v, idx) => {
                     const parts = v.split('=');
                     const label = parts[0].trim();
+                    const safeLabelArg = bsEscapeHTML(JSON.stringify(label));
                     const vPrice = parts[1] ? parseFloat(parts[1].trim()) : p.price;
 
                     let icon = 'fa-key';
@@ -1827,12 +1825,12 @@
                     if(label.toLowerCase().includes('caro')) { icon = 'fa-bolt'; subtitle = 'Trusted Supplier Source'; }
 
                     formatsHtml += `
-                        <div class="format-option-card ${idx===0?'selected':''}" onclick="selectFormatCard(this, ${vPrice}, '${label}')">
+                        <div class="format-option-card ${idx===0?'selected':''}" onclick="selectFormatCard(this, ${Number.isFinite(vPrice) ? vPrice : 0}, ${safeLabelArg})">
                             <div class="format-option-left">
                                 <div class="format-icon-box"><i class="fa-solid ${icon}"></i></div>
                                 <div>
-                                    <div class="format-title">${label}</div>
-                                    <div class="format-subtitle">${subtitle}</div>
+                                    <div class="format-title">${bsEscapeHTML(label)}</div>
+                                    <div class="format-subtitle">${bsEscapeHTML(subtitle)}</div>
                                 </div>
                             </div>
                             <div class="format-option-right">
@@ -1851,18 +1849,18 @@
 
             let infoBoxHtml = `
                 <div class="info-box">
-                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-earth-americas"></i> ناوچە (Region):</span><span class="info-value">${p.region || 'Global'}</span></div>
-                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-gamepad"></i> پلاتفۆرم:</span><span class="info-value">${p.platform || 'PlayStation Network'}</span></div>
-                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-bolt"></i> گەیاندن (Delivery):</span><span class="info-value">${p.delivery || 'Instant Delivery'}</span></div>
+                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-earth-americas"></i> ناوچە (Region):</span><span class="info-value">${bsEscapeHTML(p.region || 'Global')}</span></div>
+                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-gamepad"></i> پلاتفۆرم:</span><span class="info-value">${bsEscapeHTML(p.platform || 'PlayStation Network')}</span></div>
+                    <div class="info-row"><span class="info-label"><i class="fa-solid fa-bolt"></i> گەیاندن (Delivery):</span><span class="info-value">${bsEscapeHTML(p.delivery || 'Instant Delivery')}</span></div>
                 </div>
             `;
 
-            let noteHtml = p.note ? `<div style="background:rgba(255,255,255,0.04); border-left:3px solid #10b981; padding:8px 12px; border-radius:6px; font-size:0.8rem; color:#ddd; margin:10px 0;"><strong>تێبینی:</strong> ${p.note}</div>` : '';
+            let noteHtml = p.note ? `<div style="background:rgba(255,255,255,0.04); border-left:3px solid #10b981; padding:8px 12px; border-radius:6px; font-size:0.8rem; color:#ddd; margin:10px 0;"><strong>تێبینی:</strong> ${bsEscapeHTML(p.note)}</div>` : '';
 
             const prodReviews = reviews.filter(r => r.productId === firestoreId);
             let reviewsListHtml = '';
             prodReviews.forEach(r => {
-                reviewsListHtml += `<div style="font-size:0.78rem; background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px; margin-bottom:4px; color:#ccc;"><strong>${r.name}:</strong> ${r.comment} <span style="color:#facc15;">★ ${r.stars}</span></div>`;
+                reviewsListHtml += `<div style="font-size:0.78rem; background:rgba(0,0,0,0.3); padding:6px 10px; border-radius:6px; margin-bottom:4px; color:#ccc;"><strong>${bsEscapeHTML(r.name)}:</strong> ${bsEscapeHTML(r.comment)} <span style="color:#facc15;">★ ${bsEscapeHTML(r.stars)}</span></div>`;
             });
 
             let addReviewHtml = `
@@ -1939,7 +1937,7 @@
 
         function addToCartWithVariant(firestoreId) {
             const p = products.find(x => x.firestoreId === firestoreId);
-            const itemTitle = currentSelectedVariantLabel ? `${p.title} (${currentSelectedVariantLabel})` : p.title;
+            const itemTitle = currentSelectedVariantLabel ? `${bsEscapeHTML(p.title)} (${bsEscapeHTML(currentSelectedVariantLabel)})` : p.title;
             if (p.stockMode === 'quantity') {
                 const inCart = cart.filter(x => x.firestoreId === firestoreId).length;
                 if (inCart >= Number(p.stockQuantity || 0)) return alert('ژمارەی ئەم بەرهەمە لە کۆگادا بەس نییە.');
@@ -1970,7 +1968,7 @@
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem; background:rgba(255,255,255,0.03); padding:8px; border-radius:8px;">
                         <div>
-                            <h4 style="font-size:0.85rem; color:#fff;">${item.title}</h4>
+                            <h4 style="font-size:0.85rem; color:#fff;">${bsEscapeHTML(item.title)}</h4>
                             <p style="color:#4ade80; font-size:0.8rem;">${formatPrice(item.price)}</p>
                         </div>
                         <button onclick="cart.splice(${index},1); updateCart();" style="background:none; border:none; color:var(--accent-red); cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
@@ -2118,7 +2116,7 @@
             filtered.forEach(p => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:8px; border-radius:8px; margin-bottom:6px;">
-                        <span style="font-size:0.85rem;">${p.title} (${p.price} IQD) · ${p.stockMode === 'quantity' ? 'کۆگا: ' + Number(p.stockQuantity || 0) : (p.stockStatus === 'out' ? 'تەواو بووە' : 'دەستی: بەردەستە')}</span>
+                        <span style="font-size:0.85rem;">${bsEscapeHTML(p.title)} (${Number(p.price) || 0} IQD) · ${p.stockMode === 'quantity' ? 'کۆگا: ' + Number(p.stockQuantity || 0) : (p.stockStatus === 'out' ? 'تەواو بووە' : 'دەستی: بەردەستە')}</span>
                         <div style="display:flex; gap:6px;">
                             <button onclick="editProduct('${p.firestoreId}')" style="background:#3b82f6; border:none; color:#fff; padding:4px 8px; border-radius:6px; cursor:pointer;">دەستکاری</button>
                             <button onclick="deleteProduct('${p.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:4px 8px; border-radius:6px; cursor:pointer;">سڕینەوە</button>
@@ -2133,7 +2131,7 @@
             const id = document.getElementById('catIdInput').value.trim().toLowerCase().replace(/\s+/g, '-');
             const name = document.getElementById('catNameInput').value.trim();
             const color = document.getElementById('catColorInput').value || '#a855f7';
-            if(!id || !name) return alert('تکایە کۆد و ناوی بەش پڕبکەرەوە');
+            if(!/^[a-z0-9_-]{2,32}$/.test(id) || !name) return alert('کۆدی بەش دەبێت ٢ تا ٣٢ پیت/ژمارەی لاتینی یان - و _ بێت، و ناو پڕ بکرێتەوە.');
             try {
                 await window.addDoc(window.collection(window.db, "categories"), { id, name, color });
                 document.getElementById('catIdInput').value = '';
@@ -2154,7 +2152,7 @@
             categories.filter(c => c.id !== 'all').forEach(c => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; margin-bottom:4px;">
-                        <span style="display:flex;align-items:center;gap:8px;"><i style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${c.color || '#777'};"></i>${c.name} (${c.id})</span>
+                        <span style="display:flex;align-items:center;gap:8px;"><i style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${c.color || '#777'};"></i>${bsEscapeHTML(c.name)} (${bsEscapeHTML(c.id)})</span>
                         ${c.firestoreId ? `<button onclick="deleteCategory('${c.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:2px 6px; border-radius:4px; cursor:pointer;">سڕینەوە</button>` : ''}
                     </div>
                 `;
@@ -2191,7 +2189,7 @@
             coupons.forEach(c => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; margin-bottom:4px;">
-                        <span>کۆد: <strong>${c.code}</strong> (داشکاندن: ${c.percent}%)</span>
+                        <span>کۆد: <strong>${bsEscapeHTML(c.code)}</strong> (داشکاندن: ${Number(c.percent) || 0}%)</span>
                         <button onclick="deleteCoupon('${c.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:2px 6px; border-radius:4px; cursor:pointer;">سڕینەوە</button>
                     </div>
                 `;
@@ -2319,7 +2317,7 @@
             reviews.forEach(r => {
                 html += `
                     <div style="background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.8rem;">
-                        <strong>${r.name}:</strong> ${r.comment} (${r.stars} Stars)
+                        <strong>${bsEscapeHTML(r.name)}:</strong> ${bsEscapeHTML(r.comment)} (${bsEscapeHTML(r.stars)} Stars)
                     </div>
                 `;
             });
@@ -2348,7 +2346,7 @@
             slides.forEach(s => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.4); padding:6px; border-radius:6px; margin-bottom:4px;">
-                        <span>${s.title}</span>
+                        <span>${bsEscapeHTML(s.title)}</span>
                         ${s.firestoreId ? `<button onclick="deleteSlide('${s.firestoreId}')" style="background:#ef4444; border:none; color:#fff; padding:2px 6px; border-radius:4px; cursor:pointer;">سڕینەوە</button>` : ''}
                     </div>
                 `;
@@ -2422,7 +2420,7 @@
             const res = document.getElementById('trackResultContainer');
             if(!phone) return alert('ژمارەی مۆبایل بنووسە');
 
-            const myOrders = orders.filter(o => o.phone.includes(phone));
+            const myOrders = orders.filter(o => String(o.phone || '').includes(phone));
             if(myOrders.length === 0) {
                 res.innerHTML = `<p style="color:#ef4444; font-size:0.85rem;">هیچ داواکارییەک بەم ژمارەیە نەدۆزرایەوە!</p>`;
                 return;
