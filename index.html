@@ -72,7 +72,7 @@
                     // the Google account also has the administrator UID.
                     if (typeof window.initAdminRealtime === 'function') window.initAdminRealtime();
                     if (isGoogle) {
-                        currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاؤنتەکەم', avatar: user.photoURL || '', provider: 'google' };
+                        currentUser = { uid: user.uid, email: user.email || '', name: user.displayName || user.email || 'ئەکاؤنتەکەم', avatar: user.photoURL || (savedCustomer && savedCustomer.avatar) || '', provider: 'google' };
                         try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     } else {
                         currentUser = savedCustomer && savedCustomer.provider === 'discord' ? savedCustomer : null;
@@ -81,7 +81,7 @@
                 } else if (user) {
                     const provider = user.isAnonymous ? 'guest' : (isGoogle ? 'google' : 'email');
                     let savedName = ''; try { savedName = localStorage.getItem('baseStoreCustomerName') || ''; } catch (_) {}
-                    currentUser = { uid: user.uid, email: user.email || '', name: savedName || user.displayName || user.email || (user.isAnonymous ? 'میوان' : 'ئەکاؤنتەکەم'), avatar: user.photoURL || '', provider };
+                    currentUser = { uid: user.uid, email: user.email || '', name: savedName || user.displayName || user.email || (user.isAnonymous ? 'میوان' : 'ئەکاؤنتەکەم'), avatar: user.photoURL || (savedCustomer && savedCustomer.uid === user.uid ? savedCustomer.avatar : '') || '', provider };
                     try { localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser)); } catch (_) {}
                     updateAuthUI();
                     loadUserWishlistFromCloud();
@@ -550,7 +550,9 @@
                 <div id="authProfileName" style="font-size:1.08rem;font-weight:900;color:#fff;overflow-wrap:anywhere;">ئەکاؤنتەکەم</div>
                 <div id="authProfileEmail" style="font-size:.78rem;color:#d1aab3;margin-top:4px;overflow-wrap:anywhere;"></div>
                 <div id="authProfileProvider" style="display:inline-flex;align-items:center;gap:6px;margin-top:11px;padding:5px 12px;border-radius:30px;background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.15);font-size:.75rem;color:#fff;"></div>
-                <button onclick="editCustomerDisplayName()" style="display:block;width:100%;margin-top:10px;background:#3b1520;color:#fff;border:1px solid #b0002d;padding:9px;border-radius:10px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-pen"></i> گۆڕینی ناوی پیشاندان</button>
+                <input id="customerAvatarFile" type="file" accept="image/*" style="display:none" onchange="changeCustomerAvatar(event)">
+                <button onclick="document.getElementById('customerAvatarFile').click()" style="display:block;width:100%;margin-top:10px;background:#3b1520;color:#fff;border:1px solid #b0002d;padding:9px;border-radius:10px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-camera"></i> گۆڕینی وێنەی هەژمار</button>
+                <button onclick="editCustomerDisplayName()" style="display:block;width:100%;margin-top:8px;background:#3b1520;color:#fff;border:1px solid #b0002d;padding:9px;border-radius:10px;font-weight:800;cursor:pointer;"><i class="fa-solid fa-pen"></i> گۆڕینی ناوی پیشاندان</button>
                 <div style="margin-top:16px;text-align:right;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;">
                     <div style="font-weight:900;color:#fff;margin-bottom:9px;"><i class="fa-solid fa-box-open"></i> مێژووی داواکارییەکانم</div>
                     <div id="customerOrderHistory" style="font-size:.8rem;color:#ddd;">بۆ بینینی داواکارییەکان چاوەڕێ بکە...</div>
@@ -884,7 +886,7 @@
             const providerEl = document.getElementById('authProfileProvider');
             if (currentUser) {
                 const displayName = currentUser.name || currentUser.email || 'ئەکاؤنتەکەم';
-                const providerName = currentUser.provider === 'discord' ? 'Discord' : currentUser.provider === 'google' ? 'Google' : currentUser.provider === 'guest' ? 'میوان · بەبێ دروستکردنی هەژمار' : 'Email';
+                const providerName = currentUser.provider === 'discord' ? 'Discord' : currentUser.provider === 'google' ? 'Google' : currentUser.provider === 'guest' ? 'میوان' : 'ئیمەیڵ و پاسوۆرد';
                 if (btnText) btnText.textContent = displayName;
                 if (authOptions) authOptions.style.display = 'none';
                 if (profileCard) profileCard.style.display = 'block';
@@ -930,6 +932,45 @@
             } catch (error) { alert('نەتوانرا ناوەکە نوێ بکرێتەوە: ' + error.message); }
         }
         window.editCustomerDisplayName = editCustomerDisplayName;
+
+        async function changeCustomerAvatar(event) {
+            const file = event && event.target && event.target.files && event.target.files[0];
+            if (!file || !currentUser) return;
+            if (!file.type.startsWith('image/')) { alert('تکایە تەنها فایلێکی وێنە هەڵبژێرە.'); return; }
+            if (file.size > 8 * 1024 * 1024) { alert('قەبارەی وێنەکە زۆرە؛ وێنەیەکی کەمتر لە ٨MB هەڵبژێرە.'); return; }
+            try {
+                const dataUrl = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = () => reject(new Error('خوێندنەوەی وێنەکە سەرکەوتوو نەبوو.'));
+                    reader.onload = () => {
+                        const img = new Image();
+                        img.onerror = () => reject(new Error('وێنەکە نەکرایەوە.'));
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const maxSide = 320;
+                            const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+                            canvas.width = Math.max(1, Math.round(img.width * scale));
+                            canvas.height = Math.max(1, Math.round(img.height * scale));
+                            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                            resolve(canvas.toDataURL('image/jpeg', 0.72));
+                        };
+                        img.src = reader.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+                if (dataUrl.length > 450000) throw new Error('وێنەکە هێشتا گەورەیە؛ وێنەیەکی بچووکتر هەڵبژێرە.');
+                currentUser.avatar = dataUrl;
+                localStorage.setItem('baseStoreCustomerProfile', JSON.stringify(currentUser));
+                updateAuthUI();
+                showTopLeftToast('وێنەی هەژمارەکەت نوێکرایەوە.');
+            } catch (error) {
+                console.error('Customer avatar update:', error);
+                alert(error.message || 'نەتوانرا وێنەکە پاشەکەوت بکرێت.');
+            } finally {
+                event.target.value = '';
+            }
+        }
+        window.changeCustomerAvatar = changeCustomerAvatar;
 
         async function loadCustomerOrderHistory() {
             const target = document.getElementById('customerOrderHistory');
@@ -1689,14 +1730,35 @@
         }
 
         async function submitReview(productId) {
-            const name = document.getElementById('revName').value.trim();
-            const comment = document.getElementById('revComment').value.trim();
-            const stars = document.getElementById('revStars').value;
-            if(!name || !comment) return alert('تکایە خانەکان پڕبکەرەوە');
+            const nameInput = document.getElementById('revName');
+            const commentInput = document.getElementById('revComment');
+            const starsInput = document.getElementById('revStars');
+            if (!nameInput || !commentInput || !starsInput) return;
 
-            await window.addDoc(window.collection(window.db, "reviews"), { productId, name, comment, stars, date: new Date().toISOString() });
-            showTopLeftToast('سوپاس! هەڵسەنگاندنەکەت نێردرا');
-            closeModal('gameModal');
+            const name = nameInput.value.trim();
+            const comment = commentInput.value.trim();
+            const stars = starsInput.value;
+            if (!name || !comment) return alert('تکایە ناو و ڕای خۆت پڕبکەرەوە');
+
+            const submitBtn = commentInput.parentElement.querySelector('button[onclick^="submitReview"]');
+            if (submitBtn && submitBtn.disabled) return;
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'لە ناردندایە...'; }
+
+            try {
+                await window.addDoc(window.collection(window.db, "reviews"), {
+                    productId, name, comment, stars, date: new Date().toISOString()
+                });
+                // Clear the submitted text only after Firestore confirms the write.
+                commentInput.value = '';
+                showTopLeftToast('سوپاس! هەڵسەنگاندنەکەت بە سەرکەوتوویی نێردرا ✓');
+                if (submitBtn) submitBtn.textContent = 'نێردرا ✓';
+            } catch (error) {
+                console.error('Submit review failed:', error);
+                showTopLeftToast('ناردنی هەڵسەنگاندن سەرکەوتوو نەبوو؛ دووبارە هەوڵ بدەرەوە', 'error');
+                if (submitBtn) submitBtn.textContent = 'دووبارە ناردنەوە';
+            } finally {
+                if (submitBtn) submitBtn.disabled = false;
+            }
         }
 
         function addToCartWithVariant(firestoreId) {
